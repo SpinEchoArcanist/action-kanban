@@ -1,0 +1,726 @@
+/* =====================================================================
+   Action Kanban — styles.css
+   Aesthetic: Modern Apple-inspired. All colours via Obsidian CSS vars
+   first; hardcoded hex only where spec §9 provides explicit values.
+   ===================================================================== */
+
+/* ── Custom colours (Settings → Appearance) ────────────────────────────
+   The plugin sets/removes the *-override properties on document.body based
+   on customColorsEnabled (see applyCustomColors()). When a property isn't
+   set, the var() fallback below uses Obsidian's standard theme colour —
+   these blocks never introduce a visible change on their own. */
+body.theme-light .ak-board-root {
+  --ak-toolbar-bg: var(--ak-toolbar-bg-light-override, var(--background-primary));
+  --ak-board-bg:  var(--ak-board-bg-light-override,  var(--background-primary));
+  --ak-column-bg: var(--ak-column-bg-light-override, var(--background-secondary-alt));
+  --ak-card-bg:   var(--ak-card-bg-light-override,   var(--background-secondary));
+}
+body.theme-dark .ak-board-root {
+  --ak-toolbar-bg: var(--ak-toolbar-bg-dark-override, var(--background-primary));
+  --ak-board-bg:  var(--ak-board-bg-dark-override,  var(--background-primary));
+  --ak-column-bg: var(--ak-column-bg-dark-override, var(--background-secondary-alt));
+  --ak-card-bg:   var(--ak-card-bg-dark-override,   var(--background-secondary));
+}
+
+/* ── Board root ────────────────────────────────────────────────────── */
+.ak-board-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ak-board-bg, var(--background-primary));
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────────── */
+.ak-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--ak-toolbar-bg, var(--background-primary));
+  border-bottom: 1px solid var(--background-modifier-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.ak-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.ak-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Filter buttons */
+.ak-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  height: 28px;
+  border-radius: 14px;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.ak-filter-btn:hover {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.ak-filter-btn--active {
+  background: var(--interactive-accent);
+  color: #ffffff;
+  border-color: var(--interactive-accent);
+}
+
+.ak-filter-btn--active:hover {
+  background: var(--interactive-accent-hover, var(--interactive-accent));
+}
+
+.ak-btn-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* New Action button */
+.ak-new-action-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--interactive-accent);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.ak-new-action-btn:hover {
+  background: var(--interactive-accent-hover, var(--interactive-accent));
+  opacity: 0.92;
+}
+
+/* Refresh button */
+.ak-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ak-refresh-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-secondary);
+}
+
+/* ── Columns wrapper ─────────────────────────────────────────────────── */
+.ak-columns {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  padding: 12px;
+  overflow-x: auto;
+  flex: 1;
+  align-items: stretch;   /* was flex-start: made short columns shrink-wrap
+                              to content, so their drop zone ended where the
+                              cards ended. Stretch gives every column (even
+                              near-empty ones) the same height as the row,
+                              so the whole column area — not just its own
+                              content — is a reachable drop target. The
+                              existing dragover/drop listeners are already
+                              bound to the full .ak-column element, so no
+                              JS changes were needed for this. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--interactive-accent) transparent;
+}
+
+.ak-columns::-webkit-scrollbar {
+  height: 6px;
+}
+.ak-columns::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ak-columns::-webkit-scrollbar-thumb {
+  background: var(--interactive-accent);
+  border-radius: 3px;
+  opacity: 0.6;
+}
+
+/* ── Column ─────────────────────────────────────────────────────────── */
+.ak-column {
+  flex: 1 0 240px;   /* grow to fill available space; never shrink below 240px */
+  display: flex;
+  flex-direction: column;
+  background: var(--ak-column-bg, var(--background-secondary-alt));
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border 0.15s;
+}
+
+.ak-column-drop-target {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+}
+
+/* Column header */
+.ak-column-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px 8px;
+  border-bottom: 2px solid var(--col-color, var(--background-modifier-border));
+  cursor: pointer;
+  user-select: none;
+}
+
+.ak-column-header:hover {
+  background: var(--background-modifier-hover, rgba(0, 0, 0, 0.02));
+}
+
+/* Disclosure triangle — click target is the whole header. Rotates when
+   the column is collapsed (see .ak-column--collapsed below). */
+.ak-column-collapse-icon {
+  width: 0;
+  height: 0;
+  margin-right: 6px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--text-faint);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.ak-column-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--h3-color, var(--text-accent, var(--text-normal)));
+}
+
+.ak-column-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  margin-left: auto;   /* pushes badge to the right now that the header
+                           uses flex-start instead of space-between, to
+                           make room for the collapse icon before the label */
+  border-radius: 10px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Collapsed column: header-only view, card list and done-footer hidden.
+   This is the default. See ".ak-columns--tilt" below for the optional
+   vertical-strip variant (Settings → Board behaviour → "Tilt collapsed
+   columns"). */
+.ak-column--collapsed {
+  /* Opt out of .ak-columns' align-items: stretch (added for the drop-zone
+     extension). Without this, the outer column box still gets pulled down
+     to match taller siblings even though its children are hidden below,
+     leaving a confusing empty area that looks like an empty column rather
+     than a collapsed one. */
+  align-self: flex-start;
+}
+
+.ak-column--collapsed .ak-card-list,
+.ak-column--collapsed .ak-done-footer {
+  display: none;
+}
+
+.ak-column--collapsed .ak-column-collapse-icon {
+  transform: rotate(-90deg);
+}
+
+/* ── Tilted (vertical strip) collapsed columns ─────────────────────────
+   Opt-in via settings.tiltCollapsedColumns; renderBoard() adds the
+   .ak-columns--tilt class to the row when it's on. Everything here is
+   scoped under that class, so with the setting off none of it matches
+   and collapsed columns stay in the header-only mode above. */
+.ak-columns--tilt .ak-column--collapsed {
+  flex: 0 0 44px;       /* fixed narrow strip width — no grow, no shrink.
+                            Every expanded sibling keeps its normal
+                            flex: 1 0 240px, so flexbox alone redistributes
+                            the freed width across them equally; nothing
+                            here needs to compute that by hand. */
+  align-self: stretch;   /* override the header-only mode's flex-start —
+                             a tilted strip should run the full column
+                             height like its expanded siblings, not just
+                             hug the header. */
+}
+
+.ak-columns--tilt .ak-column--collapsed .ak-column-header {
+  flex: 1;   /* fill the stretched column height: with .ak-card-list and
+                .ak-done-footer hidden, the header is the only visible
+                child, so it needs its own flex-grow to fill the box */
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 12px 4px;
+  border-bottom: none;
+  border-left: 3px solid var(--col-color, var(--background-modifier-border));
+}
+
+.ak-columns--tilt .ak-column--collapsed .ak-column-collapse-icon {
+  margin-right: 0;
+  margin-bottom: 8px;
+}
+
+.ak-columns--tilt .ak-column--collapsed .ak-column-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0;
+}
+
+.ak-columns--tilt .ak-column--collapsed .ak-column-badge {
+  margin-left: 0;
+  margin-top: 8px;
+  flex-shrink: 0;
+}
+
+/* Card list — scrollable */
+.ak-card-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;   /* fill the stretched column height (see .ak-columns) rather
+                than shrink-wrapping to its own cards */
+  gap: 0;
+  padding: 8px 8px 12px;
+  overflow-y: auto;
+  max-height: calc(100vh - 180px);
+  scrollbar-width: thin;
+  scrollbar-color: var(--background-modifier-border) transparent;
+}
+
+.ak-card-list::-webkit-scrollbar {
+  width: 4px;
+}
+.ak-card-list::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+}
+
+/* Done footer */
+.ak-done-footer {
+  padding: 6px 12px 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  font-style: italic;
+}
+
+/* ── Priority separator ──────────────────────────────────────────────── */
+.ak-priority-sep {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 8px 4px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+.ak-priority-sep:first-child {
+  padding-top: 2px;
+}
+
+/* ── Card ───────────────────────────────────────────────────────────── */
+.ak-card {
+  background: var(--ak-card-bg, var(--background-secondary));
+  border-radius: 10px;
+  border-left: 3px solid transparent;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  padding: 10px 10px 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+  user-select: none;
+  position: relative;
+}
+
+.ak-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+}
+
+.ak-card:last-child {
+  margin-bottom: 0;
+}
+
+.ak-card-dragging {
+  opacity: 0.5;
+  transform: scale(0.97);
+}
+
+/* Card title row */
+.ak-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  margin-bottom: 4px;
+}
+
+.ak-chevron-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 2px;
+  margin-left: -2px;
+  transition: background 0.1s;
+}
+
+.ak-chevron-wrap:hover,
+.ak-chevron-wrap:focus-visible {
+  background: var(--background-modifier-hover, rgba(127, 127, 127, 0.15));
+}
+
+.ak-chevron-wrap:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.ak-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--link-color);
+  line-height: 1.4;
+  word-break: break-word;
+  flex: 1;
+}
+
+.ak-card-title:hover,
+.ak-card:hover .ak-card-title {
+  color: var(--link-color-hover, var(--link-color));
+}
+
+/* Card meta row (PILL_FIELDS) */
+.ak-card-meta-row {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+/* ── Dot row ─────────────────────────────────────────────────────────── */
+.ak-dot-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: 3px;
+  margin: 4px 0 2px;
+  min-height: 7px; /* prevent layout shift when empty */
+}
+
+.ak-dot {
+  width: var(--ak-dot-size, 7px);
+  height: var(--ak-dot-size, 7px);
+  border-radius: 50%;
+  flex-shrink: 1;
+  min-width: 3px;
+}
+
+.ak-dot--t0 { background-color: #FFFFFF; } /* grace period, days 0-4 */
+.ak-dot--t1 { background-color: #FFD580; } /* days 5-13 */
+.ak-dot--t2 { background-color: #FF8C00; } /* days 14-20 */
+.ak-dot--t3 { background-color: #E24B4A; } /* days 21-28 */
+
+/* ── Due date bar ────────────────────────────────────────────────────── */
+.ak-due-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.ak-due-bar-wrap {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.ak-due-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+
+.ak-due-bar-overdue {
+  animation: pulse-red 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%       { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35); }
+}
+
+.ak-due-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Insertion line (drag-drop) ─────────────────────────────────────── */
+.ak-insertion-line {
+  height: 2px;
+  background: var(--interactive-accent);
+  border-radius: 1px;
+  margin: 2px 0;
+  animation: fade-in-line 0.1s ease-in;
+}
+
+@keyframes fade-in-line {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Error state ─────────────────────────────────────────────────────── */
+.ak-error {
+  padding: 16px;
+  color: var(--text-error, #EF4444);
+  font-size: 13px;
+}
+
+/* ── New Action modal ────────────────────────────────────────────────── */
+.ak-new-action-modal h2 {
+  margin-top: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 12px;
+}
+
+.ak-new-action-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+
+.ak-new-action-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.ak-new-action-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ak-new-action-create {
+  background: var(--interactive-accent);
+  color: #ffffff;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ak-new-action-create:hover {
+  background: var(--interactive-accent-hover, var(--interactive-accent));
+  opacity: 0.9;
+}
+
+.ak-new-action-cancel {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ak-new-action-cancel:hover {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+/* ── Priority picker modal ───────────────────────────────────────────── */
+.ak-priority-picker-btn-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ak-priority-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.ak-priority-picker-option:hover {
+  background: var(--background-modifier-hover, var(--background-secondary-alt));
+  border-color: var(--interactive-accent);
+}
+
+.ak-priority-picker-option--current {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary-alt);
+}
+
+.ak-priority-picker-cancel-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Settings tab ────────────────────────────────────────────────────── */
+.ak-settings h3 {
+  margin-top: 24px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 6px;
+}
+
+.ak-settings-table {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.ak-settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 60px 60px 80px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Pill fields table has 3 cells (Label, Frontmatter key, Remove), not 5 */
+.ak-settings-row--pill {
+  grid-template-columns: 1fr 1fr 80px;
+}
+
+/* Columns section has different columns */
+.ak-settings-row--header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.ak-settings-cell input[type="text"] {
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.ak-settings-cell input[type="color"] {
+  width: 32px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+}
+
+.ak-settings-cell--multi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ak-settings-check-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-normal);
+}
+
+.ak-settings-cell button {
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ak-settings-cell button:hover {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.ak-settings-warning {
+  padding: 8px 10px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid #F59E0B;
+  border-radius: 6px;
+  color: #F59E0B;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.ak-settings-validation {
+  min-height: 4px;
+}
