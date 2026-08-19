@@ -4,7 +4,6 @@
 
 ![License](https://img.shields.io/github/license/SpinEchoArcanist/action-kanban)
 ![Obsidian minimum version](https://img.shields.io/badge/Obsidian-%E2%89%A51.4.0-7C3AED)
-![Platform](https://img.shields.io/badge/platform-desktop%20%26%20mobile-blue)
 
 ![Action Kanban — full board overview](screenshots/board-overview.png)
 
@@ -53,7 +52,6 @@ The result is a small, opinionated plugin: your notes' frontmatter *is* the boar
 - **Priority filter toolbar** (All / High / Medium / Low).
 - **Custom board colors**, independently for light and dark themes.
 - **Optional "card meta fields"** *(experimental)* — show extra frontmatter values as a small pill line under a card's title.
-- **Works on desktop and mobile.**
 
 ## Anatomy of a card
 
@@ -68,7 +66,7 @@ The result is a small, opinionated plugin: your notes' frontmatter *is* the boar
 ## Requirements
 
 - Obsidian **1.4.0** or later.
-- Works on **desktop and mobile**.
+- Desktop: actively used and tested. Mobile: the plugin doesn't declare itself desktop-only (`isDesktopOnly: false`), so it should load, but it hasn't been tested on mobile by the maintainer yet — drag-and-drop in particular is untested on touch. Feedback via an issue is welcome.
 - No required plugin dependencies. **Templater** is entirely optional — Action Kanban has zero runtime dependency on it — but it pairs nicely if you want note-creation prompts (see [Using the example template](#using-the-example-template)).
 - Folder-path autocomplete in Settings needs Obsidian **1.4.10+**; on older 1.4.x installs the Actions-folder field just falls back to a plain text input with no loss of core functionality.
 
@@ -96,18 +94,38 @@ With manual installs you'll need to repeat this process yourself for future upda
 
 ## Quick start
 
-1. Decide which vault folder will hold your Action notes — by default the plugin looks for a folder named **Actions**, but this is configurable in Settings → Folders.
-2. Create a note in that folder with, at minimum:
+### 1. Set up your Actions folder — the important step
 
-   ```yaml
-   ---
-   Type: Action
-   ---
-   ```
+A note only ever becomes a card if **both** of these are true:
 
-3. Open the board — either the ribbon icon (dashboard icon) or Command Palette → **Open Action Kanban**.
+- It lives inside the folder configured under **Settings → Action Kanban → Folders → Actions folder**. Default: a top-level folder named `Actions`.
+- Its frontmatter has a field, by default named `Type`, containing the value `Action` — configured under **Settings → Action Kanban → Note identification**.
 
-That's it. The plugin fills in `status`, `priority`, `status_changed`, and `order` for you automatically the first time it loads — you don't need to write them by hand.
+Open the settings tab and check both before creating anything:
+
+- **Actions folder** — default `Actions`. You can point this at any folder, including a nested path (e.g. `5 Tasks/Actions`). If it doesn't exist yet, don't worry — it's created automatically the first time you add a note via **New Action** (step 2 below).
+- **Frontmatter type field** — default `Type`. This is the *name* of the YAML key, and it's just as configurable as its value — worth knowing if `Type` is already used for something else in your vault (e.g. `Type: Book`, `Type: Person`).
+- **Frontmatter type value** — default `Action`. The value that field must contain.
+
+So out of the box, with no settings changed, a card needs to be inside the `Actions` folder with `Type: Action` in its frontmatter. Change either the folder or the field/value pair here first if the defaults don't fit your vault.
+
+### 2. Create your first Action
+
+With the folder set, click **New Action** in the board's toolbar (or run **New Action Note** from the Command Palette). This creates a note directly inside your Actions folder with the type field, `status`, and `priority` already filled in — no manual YAML editing required.
+
+Prefer to tag an existing note instead? Move it into the Actions folder and add the frontmatter yourself, matching whatever field/value you configured in step 1 — with the defaults, that's just:
+
+```yaml
+---
+Type: Action
+---
+```
+
+### 3. Open the board
+
+Ribbon icon (dashboard icon) or Command Palette → **Open Action Kanban**.
+
+For notes you tag by hand rather than creating via **New Action**, the plugin auto-writes `status_changed` and `order` the first time the board loads them, if they're missing; `status` and `priority` fall back to sensible display defaults (`1 todo` / `medium`) on any note that omits them.
 
 To embed a board inline instead of opening it in the sidebar, place your cursor in any note (a daily note is a natural fit) and run Command Palette → **Embed Action Kanban board** (or the callout variant, for a collapsible box).
 
@@ -115,15 +133,15 @@ To embed a board inline instead of opening it in the sidebar, place your cursor 
 
 ## Frontmatter reference
 
-| Field | Required | If missing | Notes |
-|---|---|---|---|
-| `Type` *(field name configurable)* | Yes | Note isn't recognized as an Action | Value must exactly match the configured type value (default `Action`). Accepts a plain scalar or a single-item YAML list. |
-| `status` | No | Defaults to your first "To Do"-style status (`1 todo` out of the box) | Must exactly match a Status ID you've defined in Settings. |
-| `priority` | No | Defaults to `medium` | Must be exactly `high`, `medium`, or `low` — this is a fixed 3-value set, not customizable (see [Known limitations](#known-limitations)). |
-| `status_changed` | No | Auto-filled with today's date on load | **Must be a plain scalar date** (`status_changed: 2026-08-19`), not a YAML list — see [Known limitations](#known-limitations). |
-| Due date *(field name configurable, default `Due Date`; also recognizes `due_date` / `dueDate`)* | No | No due-date bar shown | Same plain-scalar requirement as `status_changed`. |
-| `order` | No | Auto-assigned on load | Internal manual-ranking value. Leave it out — the plugin manages it; you generally shouldn't need to edit it by hand. |
-| *(any other key)* | No | — | Only shown on a card if you've configured it as a "card meta field" in Settings (experimental). |
+| Field | Customizable? | Required | If missing | Notes |
+|---|---|---|---|---|
+| `Type` | Field **name**: yes · Required **value**: yes | Yes | Note isn't recognized as an Action | Both configured under Settings → Note identification. Defaults: field `Type`, value `Action`. Accepts a plain scalar or a single-item YAML list. |
+| `status` | Field name: **no**, always `status` · Valid **values**: yes | No | Defaults to your first "To Do"-style status (`1 todo` out of the box) | The key itself can't be renamed, but the whole set of valid values is yours to define under Settings → Statuses. |
+| `priority` | Field name: **no**, always `priority` · Values: **no** | No | Defaults to `medium` | Always exactly `high`, `medium`, or `low` — neither the key nor the 3 values can be changed. See [Known limitations](#known-limitations). |
+| `status_changed` | Field name: **no**, always `status_changed` | No | Auto-filled with today's date on load | **Must be a plain scalar date** (`status_changed: 2026-08-19`), not a YAML list — see [Known limitations](#known-limitations). |
+| Due date | Field **name**: yes | No | No due-date bar shown | Configured under Settings → Note identification, default `Due Date`. Whatever you set, `due_date` / `Due Date` / `dueDate` are also always recognized as fallbacks. Same plain-scalar requirement as `status_changed`. |
+| `order` | **No** — plugin-managed, not user-facing | No | Auto-assigned on load | Leave it out entirely; you shouldn't need to edit it by hand. |
+| *(pill fields)* | Field **name**: yes, fully your choice | No | — | Only shown if you've added it as a "card meta field" in Settings (experimental). You choose both the frontmatter key and its display label. |
 
 ## Using the example template
 
