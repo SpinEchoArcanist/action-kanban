@@ -1,7 +1,7 @@
 /*
 Action Kanban — hand-maintained; edits are made directly to this file, no separate build step.
 
-Action Kanban — Version 12.1.3
+Action Kanban — Version 12.1.4
 
 ── What this file is ──────────────────────────────────────────────────────
 A single flat bundle (no build step, no modules at runtime) containing the
@@ -32,7 +32,7 @@ card between columns changes its `status`, not its `order`.
 */
 
 "use strict";
-var AK_BUILD_VERSION = "12.1.3";
+var AK_BUILD_VERSION = "12.1.4";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
