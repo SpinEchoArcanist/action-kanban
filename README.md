@@ -1,9 +1,11 @@
 # Action Kanban
 
-**A lightweight, frontmatter-driven Jira-style Kanban board for Obsidian — no Dataview required.**
+**Manage Action notes on a lightweight, frontmatter-driven Kanban board for Obsidian — no Dataview required.**
 
 ![License](https://img.shields.io/github/license/SpinEchoArcanist/action-kanban)
 ![Obsidian minimum version](https://img.shields.io/badge/Obsidian-%E2%89%A51.4.0-7C3AED)
+
+> 🤖 **This plugin is 100% vibe-coded.** Every line of `main.js` and `styles.css` was written by AI (Claude), not by a professional developer, and I have not personally reviewed the source code. See [About this project](#about-this-project) at the bottom of this README for what that does and doesn't mean in practice before you install it.
 
 ![Action Kanban — full board overview](screenshots/board-overview.png)
 
@@ -14,6 +16,7 @@ Action Kanban turns any folder of notes into a drag-and-drop Kanban board, drive
 ## Table of contents
 
 - [Why Action Kanban exists](#why-action-kanban-exists)
+- [A note on frontmatter keys](#a-note-on-frontmatter-keys)
 - [Features](#features)
 - [Anatomy of a card](#anatomy-of-a-card)
 - [Requirements](#requirements)
@@ -33,22 +36,28 @@ Action Kanban turns any folder of notes into a drag-and-drop Kanban board, drive
 
 There are already excellent Kanban plugins for Obsidian — including the well-known **Kanban** plugin and **Bases Kanban**. Action Kanban isn't trying to replace them; it exists because I wanted something lighter, and specifically something I could **embed directly inside my daily notes**, not just open as a separate full-screen view.
 
-The name "Action" is a deliberate workaround, not a stylistic choice. Obsidian already has a native notion of a task — the `- [ ]` checkbox, and the popular Tasks plugin built around it — so calling these cards "Tasks" would have created constant naming collisions in my own vault. The actual inspiration is Jira, where the base unit of work is literally called a **Task**. Since that word was already spoken for in Obsidian, "Action" became the stand-in.
+The name "Action" is a deliberate workaround, not a stylistic choice. Obsidian already has a native notion of a task — the `- [ ]` loop checkbox, and the popular Tasks plugin built around it — so calling these cards "Tasks" would have created constant naming collisions in my own vault. Since "Task" was already spoken for in Obsidian, "Action" became the stand-in.
 
 The result is a small, opinionated plugin: your notes' frontmatter *is* the board. Nothing to sync, no separate database, no manifest file tracking card order — just fields on the notes you already have.
 
+## A note on frontmatter keys
+
+Action Kanban reads and writes plain YAML frontmatter directly on your notes — there's no separate database, so this is worth understanding before you point it at real notes. **Inside your configured Actions folder, the plugin automatically manages these frontmatter keys:** `Type` (or whatever you rename the type field to), `status`, `priority`, `order`, `status_changed`, and whatever field you set as the due date (default `Due Date`).
+
+**Check whether any of these keys are already used for something unrelated on notes that would fall inside your Actions folder** — if they are, Action Kanban may read or overwrite values you didn't intend it to touch. In particular,  `status_changed` and `order` aren't just read — the plugin will **automatically write them into a note's frontmatter** the first time the board loads a note that's missing them, whether or not you ever open the plugin's own note-creation flow. See the [Frontmatter reference](#frontmatter-reference) below for exactly which fields get auto-written versus left alone.
+
 ## Features
 
-- **Frontmatter-driven, no Dataview dependency** — reads/writes plain YAML frontmatter via Obsidian's own API.
+- **Frontmatter-driven, no Dataview dependency** — reads/writes plain YAML frontmatter via Obsidian's own API. A note only becomes a card if it's both inside your configured Actions folder *and* has matching frontmatter — the folder is a deliberate scope boundary, not just an organizational nicety: notes outside it are never scanned at all, even if their frontmatter would otherwise match.
 - **Three ways to view a board:** a standalone sidebar view, embedded inline in any note via a code block, or embedded inside a callout.
 - **Drag-and-drop status changes** between columns, with a picker prompt if a column maps to more than one status.
 - **Drag-and-drop reordering** within a priority group — your manual order is remembered even if a card moves away to another column and back.
 - **Dedicated priority picker** (click a card's chevron) — kept separate from drag-and-drop so the two gestures never conflict.
 - **Fully custom statuses and columns** — define as many statuses as you like, with your own labels and colors, and group them into columns however you want (including several statuses per column).
-- **Due-date urgency bar** — fills up and changes color as a due date approaches, pulses when overdue.
+- **Due-date urgency bar** — fills up and changes color as a due date approaches.
 - **Days-in-status aging dots** — a small row of dots shows how long a card has sat in its current status, colored in four aging tiers, with a configurable size.
 - **Self-healing card order** — new or manually-edited notes get their `order` and `status_changed` fields auto-populated on load; you never have to set them by hand.
-- **Collapsible columns**, in either a compact header-only mode or an optional Trello-style tilted strip.
+- **Collapsible columns**, in either a compact header-only mode or an optional Trello-style tilted strip to save horizontal space.
 - **Priority filter toolbar** (All / High / Medium / Low).
 - **Custom board colors**, independently for light and dark themes.
 - **Optional "card meta fields"** *(experimental)* — show extra frontmatter values as a small pill line under a card's title.
@@ -68,7 +77,7 @@ The result is a small, opinionated plugin: your notes' frontmatter *is* the boar
 - Obsidian **1.4.0** or later.
 - Desktop: actively used and tested. Mobile: the plugin doesn't declare itself desktop-only (`isDesktopOnly: false`), so it should load, but it hasn't been tested on mobile by the maintainer yet — drag-and-drop in particular is untested on touch. Feedback via an issue is welcome.
 - No required plugin dependencies. **Templater** is entirely optional — Action Kanban has zero runtime dependency on it — but it pairs nicely if you want note-creation prompts (see [Using the example template](#using-the-example-template)).
-- Folder-path autocomplete in Settings needs Obsidian **1.4.10+**; on older 1.4.x installs the Actions-folder field just falls back to a plain text input with no loss of core functionality.
+- Folder-path autocomplete in Settings needs Obsidian **1.4.10+**; on older 1.4.x installs the Actions-folder field just falls back to a plain text input with no loss of core functionality — that fallback is based on the guard's feature-detection logic, though, not something actually tested against a real pre-1.4.10 Obsidian install.
 
 ## Installation
 
@@ -107,14 +116,14 @@ Open the settings tab and check both before creating anything:
 - **Frontmatter type field** — default `Type`. This is the *name* of the YAML key, and it's just as configurable as its value — worth knowing if `Type` is already used for something else in your vault (e.g. `Type: Book`, `Type: Person`).
 - **Frontmatter type value** — default `Action`. The value that field must contain.
 
-> **Note:** inside your Actions folder, Action Kanban also reserves the `status`, `priority`, `order`, and `status_changed` frontmatter keys (plus whatever field you've set for the due date) for its own use — same caveat as `Type` above.
-
 So out of the box, with no settings changed, a card needs to be inside the `Actions` folder with `Type: Action` in its frontmatter. Change either the folder or the field/value pair here first if the defaults don't fit your vault.
 
 ### 2. Create your first Action
 
+#### New action button
 With the folder set, click **New Action** in the board's toolbar (or run **New Action Note** from the Command Palette). This creates a note directly inside your Actions folder with the type field, `status`, and `priority` already filled in — no manual YAML editing required.
 
+#### Manually
 Prefer to tag an existing note instead? Move it into the Actions folder and add the frontmatter yourself, matching whatever field/value you configured in step 1 — with the defaults, that's just:
 
 ```yaml
@@ -125,25 +134,27 @@ Type: Action
 
 ### 3. Open the board
 
-Ribbon icon (dashboard icon) or Command Palette → **Open Action Kanban**.
+Ribbon icon (dashboard icon) or Command Palette → **Open board**.
 
 For notes you tag by hand rather than creating via **New Action**, the plugin auto-writes `status_changed` and `order` the first time the board loads them, if they're missing; `status` and `priority` fall back to sensible display defaults (`1 todo` / `medium`) on any note that omits them.
 
-To embed a board inline instead of opening it in the sidebar, place your cursor in any note (a daily note is a natural fit) and run Command Palette → **Embed Action Kanban board** (or the callout variant, for a collapsible box).
+To embed a board inline instead of opening it in the sidebar, place your cursor in any note (a daily note is a natural fit) and run Command Palette → **Embed board** (or the callout variant, for a collapsible box).
 
 ![Board embedded inside a daily note](screenshots/embedded-in-daily-note.png)
 
 ## Frontmatter reference
 
-| Field | Customizable? | Required | If missing | Notes |
-|---|---|---|---|---|
-| `Type` | Field **name**: yes · Required **value**: yes | Yes | Note isn't recognized as an Action | Both configured under Settings → Note identification. Defaults: field `Type`, value `Action`. Accepts a plain scalar or a single-item YAML list. |
-| `status` | Field name: **no**, always `status` · Valid **values**: yes | No | Defaults to your first "To Do"-style status (`1 todo` out of the box) | The key itself can't be renamed, but the whole set of valid values is yours to define under Settings → Statuses. |
-| `priority` | Field name: **no**, always `priority` · Values: **no** | No | Defaults to `medium` | Always exactly `high`, `medium`, or `low` — neither the key nor the 3 values can be changed. See [Known limitations](#known-limitations). |
-| `status_changed` | Field name: **no**, always `status_changed` | No | Auto-filled with today's date on load | **Must be a plain scalar date** (`status_changed: 2026-08-19`), not a YAML list — see [Known limitations](#known-limitations). |
-| Due date | Field **name**: yes | No | No due-date bar shown | Configured under Settings → Note identification, default `Due Date`. Whatever you set, `due_date` / `Due Date` / `dueDate` are also always recognized as fallbacks. Same plain-scalar requirement as `status_changed`. |
-| `order` | **No** — plugin-managed, not user-facing | No | Auto-assigned on load | Leave it out entirely; you shouldn't need to edit it by hand. |
-| *(pill fields)* | Field **name**: yes, fully your choice | No | — | Only shown if you've added it as a "card meta field" in Settings (experimental). You choose both the frontmatter key and its display label. |
+**"Required?" below distinguishes three cases, not two:** **Yes** means the note isn't recognized as an Action at all without it. **No — auto-added** means you never have to set it yourself, but the plugin *will* write it into the note's frontmatter the first time the board loads a note that's missing it — it doesn't stay absent. Plain **No** means the plugin never writes it; it's either purely a display fallback or a feature that's simply not shown if it's absent.
+
+| Field            | Customizable?                                               | Required?           | If missing                                                                                                                       | Notes                                                                                                                                                                                                                  |
+| ---------------- | ----------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Type`           | Field **name**: yes · Required **value**: yes               | **Yes**             | Note isn't recognized as an Action                                                                                               | Both configured under Settings → Note identification. Defaults: field `Type`, value `Action`. Accepts a plain scalar or a single-item YAML list.                                                                       |
+| `status`         | Field name: **no**, always `status` · Valid **values**: yes | No                  | Defaults to your first "To Do"-style status (`1 todo` out of the box) for display only — **never auto-written to the file**      | The key itself can't be renamed, but the whole set of valid values is yours to define under Settings → Statuses.                                                                                                       |
+| `priority`       | Field name: **no**, always `priority` · Values: **no**      | No                  | Defaults to `medium` for display only — **never auto-written to the file**                                                       | Always exactly `high`, `medium`, or `low` — neither the key nor the 3 values can be changed. See [Known limitations](#known-limitations).                                                                              |
+| `status_changed` | Field name: **no**, always `status_changed`                 | **No — auto-added** | **Written to the note automatically**, with today's date, the first time the board loads it                                      | **Must be a plain scalar date** (`status_changed: 2026-08-19`), not a YAML list — see [Known limitations](#known-limitations).                                                                                         |
+| Due date         | Field **name**: yes                                         | No                  | No due-date bar shown — **never auto-written**                                                                                   | Configured under Settings → Note identification, default `Due Date`. Whatever you set, `due_date` / `Due Date` / `dueDate` are also always recognized as fallbacks. Same plain-scalar requirement as `status_changed`. |
+| `order`          | **No** — plugin-managed, not user-facing                    | **No — auto-added** | **Written to the note automatically**, the first time the board loads it, with a value placing the card after your existing ones | Leave it out entirely; you shouldn't need to edit it by hand.                                                                                                                                                          |
+| *(pill fields)*  | Field **name**: yes, fully your choice                      | No                  | —                                                                                                                                | Only shown if you've added it as a "card meta field" in Settings (experimental). You choose both the frontmatter key and its display label.                                                                            |
 
 ## Using the example template
 
@@ -161,7 +172,7 @@ To wire it up:
 2. Copy `Action_Template.md` into your Templater templates folder.
 3. In Templater's own settings, add a **Folder Template**: map your Actions folder to this template, so it triggers automatically whenever you create a new note there.
 
-If you don't want to install Templater at all, just use Action Kanban's own **New Action** button/command instead — it creates a bare note with sensible default frontmatter with zero external dependencies.
+If you don't want to install Templater at all, just use Action Kanban's own **New action** button/command instead — it creates a bare note with sensible default frontmatter with zero external dependencies.
 
 ## Usage guide
 
@@ -189,7 +200,7 @@ The card is appended to the end of its new priority group.
 
 ### Creating a new Action
 
-Use the toolbar's **New Action** button, or Command Palette → **New Action Note**. Unless "Skip name prompt" is enabled in Settings, you'll be asked for a title; the note is then created with default frontmatter and opened automatically.
+Use the toolbar's **New action** button, or Command Palette → **New action note**. Unless "Skip name prompt" is enabled in Settings, you'll be asked for a title; the note is then created with default frontmatter and opened automatically.
 
 ### Collapsing columns
 
@@ -217,9 +228,20 @@ filter: high
 
 A column can map to more than one status — useful if you want, say, two different "waiting" reasons to visually collapse into a single "Waiting" column. See the [Settings reference](#settings-reference) below for how to configure this; see [Moving a card between statuses](#moving-a-card-between-statuses) above for what happens when you drag a card into one.
 
-## Settings reference
+### Command Palette commands
 
-![Settings — Statuses and Columns tables](screenshots/settings-statuses-columns.png)
+All of Action Kanban's Command Palette entries are prefixed with "Action Kanban: " by Obsidian automatically.
+
+| Command | What it does |
+|---|---|
+| **Open board** | Opens the standalone board view, or reveals it if it's already open. |
+| **New action note** | Creates a new Action note — prompts for a title unless "Skip name prompt" is enabled in Settings. |
+| **Refresh board** | Manually refreshes any open standalone board(s). |
+| **Embed board** | Inserts an empty ` ```action-kanban``` ` code block at the cursor. |
+| **Embed board in a callout** | Inserts the same embed, wrapped in a collapsible `[!note]+` callout. |
+
+
+## Settings reference
 
 ### Folders
 | Setting | Description |
@@ -243,6 +265,8 @@ A column can map to more than one status — useful if you want, say, two differ
 | Skip name prompt on New Action | ON: "New Action" creates a note titled "Untitled" immediately, no prompt. Useful if a Templater Folder Template already asks for the name itself. OFF (default): Action Kanban asks for a title. |
 | Tilt collapsed columns | ON: collapsed columns become narrow vertical strips instead of header-only boxes. OFF (default). |
 
+![Settings — Statuses and Columns tables](screenshots/settings-statuses-columns.png)
+
 ### Statuses
 Each status you define maps to one frontmatter value. Configure a label, an ID (must exactly match what you write in `status:`), a color, and whether it counts as a "Done" status (which enables the auto-hide-old-cards behavior for any column it's placed in).
 
@@ -264,6 +288,7 @@ Toggle **Custom colours** to override the board's toolbar, board, column, and ca
 
 ## Known limitations
 
+- **Reserves several frontmatter keys inside your Actions folder** — `Type` (or your renamed field), `status`, `priority`, `order`, `status_changed`, and your configured due-date field are all read by the plugin, and `order`/`status_changed` specifically get written automatically if missing. If any of these are already used for something unrelated on notes that fall inside your Actions folder, check for conflicts before enabling the plugin — see [A note on frontmatter keys](#a-note-on-frontmatter-keys) above.
 - **`status_changed` and the due-date field must be written as plain YAML scalars**, not lists. If either is ever written as a list (e.g. by a template or by hand), the plugin currently reads it as though the value were entirely absent, and will silently overwrite `status_changed` with today's date on the next load. `Type`, `status`, and `priority` don't have this restriction.
 - **Priority is fixed to exactly three values** — `high`, `medium`, `low`. Unlike Statuses and Columns, there's no way to rename, add, or remove priority levels.
 - **Card meta fields (pill fields) are experimental** — functional, but not as thoroughly tested as the rest of the plugin.
@@ -272,6 +297,8 @@ Toggle **Custom colours** to override the board's toolbar, board, column, and ca
 ## About this project
 
 Action Kanban was designed, specified, and tested by [SpinEchoArcanist](https://github.com/SpinEchoArcanist) — every feature, naming decision, and bug report is theirs. The implementation itself — `main.js`, `styles.css`, and this README — was written entirely by **Claude**, Anthropic's AI model, across a series of development sessions directed by the maintainer.
+
+**What "vibe-coded" means here, concretely:** I am not a software developer, and I have not personally read through or reviewed the plugin's source code line by line. That said, this isn't a "wrote it once and shipped it" project — I've had Claude run dedicated security, safety, performance, and memory-leak audits against the codebase as part of preparing it for wider use, and I use this plugin daily on my own vault. So it's held to a real standard of scrutiny, just not one that included a professional developer reading the code themselves — decide for yourself whether that's the right trade-off for your vault.
 
 If you run into a bug or have a feature request, feel free to open an issue — fixes and changes will likely go through the same human-directed, AI-implemented process.
 
