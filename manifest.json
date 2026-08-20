@@ -1,9 +1,9 @@
 {
   "id": "action-kanban",
   "name": "Action Kanban",
-  "version": "12.0.0",
+  "version": "12.1.2",
   "minAppVersion": "1.4.0",
-  "description": "A lightweight, frontmatter-driven Jira-style Kanban board for your notes — no Dataview required. Drag-and-drop cards, custom statuses and priorities, due-date tracking, and days-in-status aging, viewable standalone or embedded inline.",
+  "description": "Manage Action notes on a lightweight, frontmatter-driven Jira-style Kanban board — no Dataview required. Drag-and-drop cards, custom statuses and priorities, due-date tracking, and days-in-status aging, standalone or embedded inline.",
   "author": "SpinEchoArcanist",
   "authorUrl": "https://github.com/SpinEchoArcanist",
   "isDesktopOnly": false
