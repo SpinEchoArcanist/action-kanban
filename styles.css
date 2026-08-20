@@ -2,6 +2,12 @@
    Action Kanban — styles.css
    Aesthetic: Modern Apple-inspired. All colours via Obsidian CSS vars
    first; hardcoded hex only where spec §9 provides explicit values.
+
+   Loads alongside main.js — see that file's header for the overall
+   plugin architecture. Class names generally follow the DOM structure
+   built in main.js's rendering functions (renderCard, renderToolbar,
+   renderColumn, etc.); the `ak-` prefix throughout avoids collisions
+   with Obsidian's own core classes or other plugins/themes.
    ===================================================================== */
 
 /* ── Custom colours (Settings → Appearance) ────────────────────────────
@@ -33,6 +39,8 @@ body.theme-dark .ak-board-root {
 }
 
 /* ── Toolbar ────────────────────────────────────────────────────────── */
+/* Sticky so it stays visible while scrolling a tall board — position and
+   z-index matter here, not just cosmetic. */
 .ak-toolbar {
   display: flex;
   align-items: center;
@@ -46,6 +54,7 @@ body.theme-dark .ak-board-root {
   flex-shrink: 0;
 }
 
+/* Priority filter buttons (All/High/Medium/Low), left-aligned */
 .ak-filter-group {
   display: flex;
   align-items: center;
@@ -53,6 +62,7 @@ body.theme-dark .ak-board-root {
   flex: 1;
 }
 
+/* New Action + Refresh buttons, right-aligned */
 .ak-toolbar-right {
   display: flex;
   align-items: center;
@@ -97,6 +107,10 @@ body.theme-dark .ak-board-root {
   align-items: center;
 }
 
+/* Priority chevron SVGs (built by makeSingleChevronSvg() in main.js) —
+   High priority renders two of these, Medium one, Low one with --rotated
+   added (points down instead of up). Same classes are reused on both the
+   toolbar's mini legend and each card's chevron. */
 .ak-chevron-icon {
   vertical-align: middle;
   margin-right: 4px;
@@ -369,6 +383,10 @@ body.theme-dark .ak-board-root {
 }
 
 /* ── Card ───────────────────────────────────────────────────────────── */
+/* border-left-color is set inline from JS (renderCard's borderColor param,
+   sourced from the card's column color, not its priority — priority is
+   shown via the chevron instead) — transparent here is just the resting
+   default before that inline override applies. */
 .ak-card {
   background: var(--ak-card-bg, var(--background-secondary));
   border-radius: 10px;
@@ -404,6 +422,9 @@ body.theme-dark .ak-board-root {
   margin-bottom: 4px;
 }
 
+/* Priority chevron's clickable wrapper — role="button"/tabindex in
+   main.js's renderCard() make this keyboard-activatable, not just a
+   mouse target; the hover/focus-visible styles below apply to both. */
 .ak-chevron-wrap {
   display: inline-flex;
   align-items: center;
@@ -449,6 +470,8 @@ body.theme-dark .ak-board-root {
 }
 
 /* ── Dot row ─────────────────────────────────────────────────────────── */
+/* One dot per day since status_changed (see DotAge in main.js). The four
+   tier classes below match DotAge.tierForIndex()'s four age brackets. */
 .ak-dot-row {
   display: flex;
   flex-direction: row;
@@ -492,6 +515,9 @@ body.theme-dark .ak-board-root {
   height: 100%;
   border-radius: 2px;
   transition: width 0.2s;
+  /* width % and background-color are set inline from JS in
+     renderDueDateBar() (main.js) — computed per-card from days-remaining,
+     not something a fixed CSS rule could express. */
 }
 
 .ak-due-bar-overdue {
@@ -511,6 +537,9 @@ body.theme-dark .ak-board-root {
 }
 
 /* ── Insertion line (drag-drop) ─────────────────────────────────────── */
+/* Inserted/repositioned by DragDropHandler.handleCardDragOver() (main.js)
+   as the user drags a card over another — purely visual, no drop logic
+   lives here. */
 .ak-insertion-line {
   height: 2px;
   background: var(--interactive-accent);
@@ -532,6 +561,11 @@ body.theme-dark .ak-board-root {
 }
 
 /* ── New Action modal ────────────────────────────────────────────────── */
+/* Despite the name, these classes are shared by all three modals
+   (NewActionModal, StatusPickerModal, PriorityPickerModal in main.js) —
+   all three add the "ak-new-action-modal" wrapper class and reuse the
+   h2/cancel-button styling here; only the "create" button (New Action's
+   Create) and its own per-modal option rows differ. */
 .ak-new-action-modal h2 {
   margin-top: 0;
   font-size: 16px;
@@ -624,6 +658,9 @@ body.theme-dark .ak-board-root {
   border-color: var(--interactive-accent);
 }
 
+/* Marks whichever option matches the card's priority at the time the
+   picker was opened — set via PriorityPickerModal's currentPriority
+   check in main.js, not a hover/focus state. */
 .ak-priority-picker-option--current {
   border-color: var(--interactive-accent);
   background: var(--background-secondary-alt);
@@ -635,10 +672,20 @@ body.theme-dark .ak-board-root {
 }
 
 /* ── Settings tab ────────────────────────────────────────────────────── */
+/* Marks the "New Status (set ID first)" row in the Columns table's status
+   checklist (see _renderColumnRows/isPlaceholder in main.js) — the
+   selector is scoped this specifically (not just .ak-settings-label--
+   placeholder alone) because a lone class rule was losing to Obsidian's
+   own default label color rule in the settings pane; this compound
+   selector reliably wins without resorting to !important. */
 .ak-settings-check-wrap label.ak-settings-label--placeholder {
   color: var(--text-faint);
 }
 
+/* Section headings ("Folders", "Statuses", etc.) are built with Obsidian's
+   Setting().setHeading() in main.js, not raw <h3> tags — .setting-item-
+   heading is the class Obsidian itself applies for that. Styled here to
+   match the bordered/spaced look the plugin used before that migration. */
 .ak-settings .setting-item.setting-item-heading {
   margin-top: 24px;
   margin-bottom: 8px;
@@ -653,11 +700,17 @@ body.theme-dark .ak-board-root {
   padding: 0;
 }
 
+/* Statuses/Columns/Card-meta-fields tables — each row is a CSS grid, not
+   an actual <table>, so column count/width is controlled by
+   grid-template-columns rather than table/td markup. */
 .ak-settings-table {
   width: 100%;
   margin-bottom: 8px;
 }
 
+/* Default grid: Label / ID / Color / Done? / Remove — used by the
+   Statuses table. Columns and pill-fields tables override this below,
+   since they have a different number/shape of cells. */
 .ak-settings-row {
   display: grid;
   grid-template-columns: 1fr 1fr 60px 60px 80px;
@@ -701,6 +754,9 @@ body.theme-dark .ak-board-root {
   background: none;
 }
 
+/* The Columns table's "Statuses included" cell — stacks one checkbox+label
+   per status vertically (see .ak-settings-check-wrap right below), rather
+   than the single-input-per-cell layout every other settings table uses. */
 .ak-settings-cell--multi {
   display: flex;
   flex-direction: column;
@@ -730,6 +786,9 @@ body.theme-dark .ak-board-root {
   color: var(--text-normal);
 }
 
+/* Shown by _validateSettings() in main.js when a status isn't assigned to
+   any column — a warning, not a blocking error, since an unassigned
+   status is still a valid frontmatter value, it just has nowhere to render. */
 .ak-settings-warning {
   padding: 8px 10px;
   background: rgba(245, 158, 11, 0.1);
@@ -740,6 +799,8 @@ body.theme-dark .ak-board-root {
   margin-bottom: 8px;
 }
 
+/* Reserves space for .ak-settings-warning above so the layout doesn't jump
+   when a warning appears/disappears as the user edits Statuses/Columns. */
 .ak-settings-validation {
   min-height: 4px;
 }

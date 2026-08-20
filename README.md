@@ -107,6 +107,8 @@ Open the settings tab and check both before creating anything:
 - **Frontmatter type field** — default `Type`. This is the *name* of the YAML key, and it's just as configurable as its value — worth knowing if `Type` is already used for something else in your vault (e.g. `Type: Book`, `Type: Person`).
 - **Frontmatter type value** — default `Action`. The value that field must contain.
 
+> **Note:** inside your Actions folder, Action Kanban also reserves the `status`, `priority`, `order`, and `status_changed` frontmatter keys (plus whatever field you've set for the due date) for its own use — same caveat as `Type` above.
+
 So out of the box, with no settings changed, a card needs to be inside the `Actions` folder with `Type: Action` in its frontmatter. Change either the folder or the field/value pair here first if the defaults don't fit your vault.
 
 ### 2. Create your first Action
