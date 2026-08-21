@@ -9,7 +9,7 @@
 
 ![Action Kanban — full board overview](screenshots/board-overview.png)
 
-Action Kanban turns any folder of notes into a drag-and-drop Kanban board, driven entirely by YAML frontmatter. Notes become cards, `status` decides which column they land in, `priority` groups them within a column, and a self-healing `order` field remembers exactly how you arranged them — all without needing the Dataview plugin.
+Action Kanban turns a folder of notes, called Actions, into a Kanban board. You can open it as its own view or embed it directly inside another note, like a daily note. Each Action note becomes a card. Its status field decides which column it lands in, and priority groups it within that column. Drag and drop a card to change its status or reorder it within its priority group, and a self-healing order field remembers exactly how you arranged things. Everything driving the board lives in the notes' own YAML frontmatter, so there's no separate database, no manifest file, and no need for the Dataview plugin.
 
 ---
 
@@ -34,11 +34,11 @@ Action Kanban turns any folder of notes into a drag-and-drop Kanban board, drive
 
 ## Why Action Kanban exists
 
-There are already excellent Kanban plugins for Obsidian — including the well-known **Kanban** plugin and **Bases Kanban**. Action Kanban isn't trying to replace them; it exists because I wanted something lighter, and specifically something I could **embed directly inside my daily notes**, not just open as a separate full-screen view.
+There are plenty of other great Kanban plugins for Obsidian by now, and it's worth knowing they exist. One of them might genuinely be the better fit for you; they are often more rich and powerfull than Action Kanban. Of everything out there, Bases Kanban comes closest to what I actually need from a board, even though its underlying approach is quite different from this plugin's. But across most alternatives, I've always felt that some function I needed where missing: either the ability to embed the board directly inside a daily note, or the markers I actually rely on to stay on top of my actions (priority, due date, and time spent in a status for example; all borrowed straight from Jira). That's why I ended up developpoing Action Kanban.
 
-The name "Action" is a deliberate workaround, not a stylistic choice. Obsidian already has a native notion of a task — the `- [ ]` loop checkbox, and the popular Tasks plugin built around it — so calling these cards "Tasks" would have created constant naming collisions in my own vault. Since "Task" was already spoken for in Obsidian, "Action" became the stand-in.
+The name "Action" is a deliberate workaround, not a stylistic choice. My actual inspiration is Jira and the Task ticket. But Obsidian already has a native notion of a task — the `- [ ]` checkbox, and the popular Tasks plugin built around it (which I also use heavily). Calling these cards "Tasks" would have thus created constant naming collisions in my own vault. Since that word was already spoken for in Obsidian, "Action" became the stand-in.
 
-The result is a small, opinionated plugin: your notes' frontmatter *is* the board. Nothing to sync, no separate database, no manifest file tracking card order — just fields on the notes you already have.
+The result is a small, opinionated plugin: your notes' frontmatter is the board. No sync, no separate database, no manifest file tracking card order, just fields on the notes you already have. Priority, due date, and time-in-status are built in as first-class markers from day one, and the board drops straight into a daily note instead of living in its own separate tab.
 
 ## A note on frontmatter keys
 
