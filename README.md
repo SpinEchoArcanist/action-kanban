@@ -5,11 +5,14 @@
 ![License](https://img.shields.io/github/license/SpinEchoArcanist/action-kanban)
 ![Obsidian minimum version](https://img.shields.io/badge/Obsidian-%E2%89%A51.4.0-7C3AED)
 
-> 🤖 **This plugin is 100% vibe-coded.** Every line of `main.js` and `styles.css` was written by AI (Claude), not by a professional developer, and I have not personally reviewed the source code. See [About this project](#about-this-project) at the bottom of this README for what that does and doesn't mean in practice before you install it.
+
+Action Kanban turns a folder of notes, called Actions, into a Kanban board. You can open it as its own view or embed it directly inside another note, like a daily note. Each Action note becomes a card. Its status field decides which column it lands in, and priority groups it within that column. Drag and drop a card to change its status or reorder it within its priority group, and a self-healing order field remembers exactly how you arranged things. Everything driving the board lives in the notes' own YAML frontmatter, so there's no separate database, no manifest file, and no need for the Dataview plugin.
 
 ![Action Kanban — full board overview](screenshots/board-overview.png)
 
-Action Kanban turns a folder of notes, called Actions, into a Kanban board. You can open it as its own view or embed it directly inside another note, like a daily note. Each Action note becomes a card. Its status field decides which column it lands in, and priority groups it within that column. Drag and drop a card to change its status or reorder it within its priority group, and a self-healing order field remembers exactly how you arranged things. Everything driving the board lives in the notes' own YAML frontmatter, so there's no separate database, no manifest file, and no need for the Dataview plugin.
+![Board embedded inside a daily note](screenshots/embedded-in-daily-note.png)
+
+> 🤖 **This plugin is 100% vibe-coded.** Every line of `main.js` and `styles.css` was written by AI (Claude), not by a professional developer, and I have not personally reviewed the source code. See [About this project](#about-this-project) at the bottom of this README for what that does and doesn't mean in practice before you install it.
 
 ---
 
@@ -34,7 +37,7 @@ Action Kanban turns a folder of notes, called Actions, into a Kanban board. You 
 
 ## Why Action Kanban exists
 
-There are plenty of other great Kanban plugins for Obsidian by now, and it's worth knowing they exist. One of them might genuinely be the better fit for you; they are often more rich and powerfull than Action Kanban. Of everything out there, Bases Kanban comes closest to what I actually need from a board, even though its underlying approach is quite different from this plugin's. But across most alternatives, I've always felt that some function I needed where missing: either the ability to embed the board directly inside a daily note, or the markers I actually rely on to stay on top of my actions (priority, due date, and time spent in a status for example; all borrowed straight from Jira). That's why I ended up developpoing Action Kanban.
+There are plenty of other great Kanban plugins for Obsidian by now, and it's worth knowing they exist. One of them might genuinely be the better fit for you; they are often more rich and powerfull than Action Kanban. Of everything out there, Bases Kanban comes closest to what I actually need from a board, even though its underlying approach is quite different from this plugin's. But across all these alternatives, I've always felt that some function I needed where missing: either the ability to embed the board directly inside a daily note, or the markers I actually rely on to stay on top of my actions (priority, due date, and time spent in a status for example; all borrowed straight from Jira). That's why I ended up developpoing Action Kanban.
 
 The name "Action" is a deliberate workaround, not a stylistic choice. My actual inspiration is Jira and the Task ticket. But Obsidian already has a native notion of a task — the `- [ ]` checkbox, and the popular Tasks plugin built around it (which I also use heavily). Calling these cards "Tasks" would have thus created constant naming collisions in my own vault. Since that word was already spoken for in Obsidian, "Action" became the stand-in.
 
