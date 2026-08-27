@@ -1,7 +1,7 @@
 {
   "id": "action-kanban",
   "name": "Action Kanban",
-  "version": "12.1.4",
+  "version": "12.8.0",
   "minAppVersion": "1.4.0",
   "description": "Manage Action notes on a lightweight, frontmatter-driven Kanban board — no Dataview required. Drag-and-drop cards, custom statuses and priorities, due-date tracking, and days-in-status aging, standalone or embedded inline.",
   "author": "SpinEchoArcanist",

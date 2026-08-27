@@ -1,7 +1,7 @@
 /*
 Action Kanban — hand-maintained; edits are made directly to this file, no separate build step.
 
-Action Kanban — Version 12.1.4
+Action Kanban — Version 12.8.0
 
 ── What this file is ──────────────────────────────────────────────────────
 A single flat bundle (no build step, no modules at runtime) containing the
@@ -32,7 +32,7 @@ card between columns changes its `status`, not its `order`.
 */
 
 "use strict";
-var AK_BUILD_VERSION = "12.1.4";
+var AK_BUILD_VERSION = "12.8.0";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -110,7 +110,71 @@ var DEFAULT_SETTINGS = {
   columnBgLight: "#f0f0f0",
   columnBgDark:  "#262626",
   cardBgLight:   "#e8e8e8",
-  cardBgDark:    "#2f2f2f"
+  cardBgDark:    "#2f2f2f",
+  // Custom accent palette. When accentPaletteEnabled is false, the board
+  // uses Obsidian's own semantic colors (--interactive-accent, --color-*)
+  // everywhere a themed accent is needed, exactly as before. The hex
+  // values here are the default starting palette (copper-led, light/dark
+  // pair per token) for when the toggle is first turned on.
+  accentPaletteEnabled: false,
+  accentCopperLight: "#b8663a",
+  accentCopperDark:  "#d39467",
+  accentBlueLight:   "#2f7f9e",
+  accentBlueDark:    "#76bfd7",
+  accentVioletLight: "#6f4fa8",
+  accentVioletDark:  "#ae94d9",
+  accentGreenLight:  "#4a7a3a",
+  accentGreenDark:   "#8fbf7a",
+  accentRedLight:    "#b8462f",
+  accentRedDark:     "#d97a6c",
+  accentAmberLight:  "#9a6f1f",
+  accentAmberDark:   "#d9b26c",
+  accentCyanLight:   "#1f7a72",
+  accentCyanDark:    "#6fc9c2",
+  // Background image (Trello-style backdrop behind the whole board root).
+  // backgroundImageEnabled gates whether backgroundImagePath is applied.
+  // Path is vault-relative (e.g. "Attachments/board-bg.png"), resolved via
+  // app.vault.adapter.getResourcePath() — a raw OS filesystem path would
+  // not work reliably from inside the plugin sandbox, and would break on
+  // mobile entirely.
+  backgroundImageEnabled: false,
+  backgroundImagePath: "",
+  // When true, refreshBingBackground() fetches Bing's "image of the day"
+  // once per calendar day and writes it to bingBackgroundPath (below) —
+  // a separate, Bing-owned path, NOT backgroundImagePath. An earlier
+  // version of this feature reused backgroundImagePath directly, which
+  // silently overwrote a manually-selected background image the moment
+  // Bing mode was turned on — fixed by always writing to a distinct
+  // filename in the same folder instead. Off by default: this makes an
+  // outbound network request to bing.com, which is a real behavior
+  // change worth an explicit opt-in rather than a silent default-on.
+  bingBackgroundEnabled: false,
+  // Vault-relative path Bing's image was actually written to (same
+  // folder as backgroundImagePath, but always the fixed filename
+  // "ak-bing-daily.jpg" — see refreshBingBackground()). Internal/derived,
+  // never directly user-edited; applyBackgroundImage() resolves this path
+  // instead of backgroundImagePath while Bing mode is on, so the user's
+  // own manually-chosen image (still sitting at backgroundImagePath) is
+  // preserved and reappears automatically if Bing mode is turned off.
+  bingBackgroundPath: "",
+  // Attribution text from Bing's API response (photographer/location
+  // credit), shown as a small overlay in the board's bottom-right corner
+  // via applyBackgroundImage()'s --ak-bing-attribution-text body-level
+  // custom property — see the body[style*="--ak-bing-attribution-text"]
+  // .ak-board-root::after rule in styles.css. Empty when Bing mode is off
+  // or no fetch has succeeded yet.
+  bingBackgroundAttribution: "",
+  // YYYY-MM-DD of the last successful Bing fetch, so refreshBingBackground()
+  // only hits the network once per day rather than on every plugin load.
+  bingLastFetchedDate: "",
+  // Opacity (0-100) of the semi-transparent overlay used on toolbar
+  // buttons, the New Action button, and column bodies when a background
+  // image is active — controls how much of the image shows through
+  // versus how readable text/controls stay on top of it. Only has any
+  // visible effect while backgroundImageEnabled is true; irrelevant
+  // otherwise since those elements use their normal opaque colors when
+  // there's no image to show through.
+  backgroundOverlayOpacity: 55
 };
 
 // ─── Debug logging ──────────────────────────────────────────────────────────
@@ -1035,10 +1099,12 @@ function appendChevron(container, priority) {
 }
 
 // ─── DotAge ───────────────────────────────────────────────────────────────────
-// One dot per day since status_changed, capped at DOT_MAX so a card stuck
-// for months doesn't produce an absurdly long row. Tiers color-code age at
-// a glance: 0 (neutral) for the first DOT_WHITE_HOLD days, then
-// progressively more alarming colors — see the ak-dot--t0..t3 CSS classes.
+// Tracks one "day" per day since status_changed, capped at DOT_MAX so a
+// card's ring-fill progress never exceeds 100%. tierForIndex()/tiers are
+// retained but no longer drive rendering directly — see DotRow below,
+// where the ring's color comes from interpolateRingColor() rather than a
+// per-day tier lookup; count (via DOT_MAX) still gates how many of the
+// ring's segments are lit.
 
 var DOT_MAX        = 28;
 var DOT_WHITE_HOLD = 5;
@@ -1059,22 +1125,122 @@ var DotAge = class _DotAge {
 };
 
 // ─── DotRow ───────────────────────────────────────────────────────────────────
+// Rendered as a segmented ring: N_DOT_SEGMENTS (12) fixed, gapped arc
+// segments, each with its own individually fixed color — not a live
+// gradient. This replaced an earlier CSS-mask-based continuous gradient,
+// which had two problems: visible edge aliasing (CSS mask edges render
+// coarser than SVG's native anti-aliasing at this size) and a botched
+// -90deg rotation carried over from old SVG code without re-deriving it
+// for conic-gradient's different default. Back to SVG stroke-dasharray/
+// dashoffset arcs (same technique the very first ring version used)
+// solves the aliasing; per-segment colors solve the "looks unfinished"
+// complaint by design rather than by tuning a live gradient's edges.
+//
+// Colors are computed by interpolateRingColor() from a small FIXED key-
+// color palette (RING_COLOR_STOPS, 4 entries) based on each segment's
+// relative position (index / N_DOT_SEGMENTS) — not hardcoded per segment
+// index — so the design stays correct even if DOT_MAX or N_DOT_SEGMENTS
+// changes later; nothing here assumes a specific segment count.
+
+var N_DOT_SEGMENTS   = 14;
+var DOT_RING_R        = 18;
+var DOT_RING_C        = 2 * Math.PI * DOT_RING_R;
+var DOT_SEGMENT_GAP_DEG = 4; // visual gap between adjacent segments
+
+// Fixed warm-progression key colors (as [r,g,b] 0-255), same hues the
+// original 4-tier palette used (#FFD580/#FF8C00/#E24B4A were tiers
+// 1/2/3) — interpolateRingColor() blends between these based on a
+// segment's relative position (t, 0 to 1), producing as many distinct
+// in-between colors as N_DOT_SEGMENTS needs without hardcoding a color
+// per segment.
+var RING_COLOR_STOPS = [
+  [255, 255, 255], // white
+  [255, 213, 128], // #FFD580 light orange
+  [255, 140, 0],   // #FF8C00 orange
+  [226, 75, 74]    // #E24B4A red
+];
+
+function interpolateRingColor(t) {
+  const stops = RING_COLOR_STOPS;
+  const n = stops.length - 1;
+  const scaled = Math.min(Math.max(t, 0), 1) * n;
+  const idx = Math.min(Math.floor(scaled), n - 1);
+  const localT = scaled - idx;
+  const a = stops[idx], b = stops[idx + 1];
+  const r = Math.round(a[0] + (b[0] - a[0]) * localT);
+  const g = Math.round(a[1] + (b[1] - a[1]) * localT);
+  const bch = Math.round(a[2] + (b[2] - a[2]) * localT);
+  return `rgb(${r}, ${g}, ${bch})`;
+}
 
 function renderDotRow(container, statusChanged) {
-  const row = container.createDiv({ cls: "ak-dot-row" });
+  const wrap = container.createDiv({ cls: "ak-dot-ring-wrap" });
   if (!statusChanged) return;
   const today  = IsoDate.today();
   const days   = Math.max(0, statusChanged.daysUntil(today));
   const dotAge = DotAge.fromDays(days);
-  for (let i = 0; i < dotAge.count; i++) {
-    row.createDiv({ cls: `ak-dot ak-dot--t${dotAge.tiers[i]}` });
+
+  const litSegments = Math.min(
+    Math.round((dotAge.count / DOT_MAX) * N_DOT_SEGMENTS),
+    N_DOT_SEGMENTS
+  );
+
+  const svg = createSvg("svg", {
+    cls: "ak-dot-ring",
+    attr: { width: "40", height: "40", viewBox: "0 0 46 46" }
+  });
+
+  const segmentSweepDeg = 360 / N_DOT_SEGMENTS;
+  const drawDeg         = segmentSweepDeg - DOT_SEGMENT_GAP_DEG;
+  const drawArcLen       = (drawDeg / 360) * DOT_RING_C;
+  const trackColor       = "var(--background-modifier-border)";
+
+  for (let i = 0; i < N_DOT_SEGMENTS; i++) {
+    const isLit = i < litSegments;
+    // Each segment's color is fixed to its position among ALL
+    // N_DOT_SEGMENTS (segment 0 is always white, the last segment is
+    // always red) — not relative to however many are currently lit.
+    // This matters: if the ramp instead stretched across only the LIT
+    // segments, a lightly-aged card with just 2-3 lit segments would
+    // show red prematurely (compressed into a short run), which would
+    // defeat the point of the ramp signaling worsening urgency over time.
+    const t     = N_DOT_SEGMENTS > 1 ? i / (N_DOT_SEGMENTS - 1) : 0;
+    const color = isLit ? interpolateRingColor(t) : trackColor;
+    const rotateDeg = -90 + i * segmentSweepDeg;
+    svg.createSvg("circle", {
+      cls: isLit ? "ak-dot-ring-seg" : "ak-dot-ring-track-seg",
+      attr: {
+        cx: "23", cy: "23", r: String(DOT_RING_R), fill: "none",
+        stroke: color, "stroke-width": "5", "stroke-linecap": "butt",
+        "stroke-dasharray": `${drawArcLen} ${DOT_RING_C - drawArcLen}`,
+        transform: `rotate(${rotateDeg} 23 23)`
+      }
+    });
   }
+
+  const countText = svg.createSvg("text", {
+    cls: "ak-dot-ring-count",
+    attr: { x: "23", y: "27", "text-anchor": "middle" }
+  });
+  // createSvg's SvgElementInfo type has no "text" option (unlike
+  // createDiv/createSpan's DomElementInfo, which does) — passing text:
+  // there is silently ignored, leaving the element empty. textContent
+  // must be set directly on the returned element instead.
+  countText.textContent = String(Math.floor(days));
+
+  wrap.appendChild(svg);
+  wrap.createSpan({ cls: "ak-dot-ring-label", text: "in status" });
 }
 
 // ─── DueDateBar ───────────────────────────────────────────────────────────────
-// Urgency bar: empty and green until warningDays before the due date, then
-// fills linearly as the date approaches, snapping to 100%/red once overdue.
-// Rendered only if a due date exists — no bar at all otherwise.
+// Countdown rail: a static track with a marker dot that sweeps from left
+// (far from due) to right (due date), parking at the far right once overdue
+// rather than growing a fill bar. Same fillPct/fillColor/label/isOverdue
+// computation as the previous fill-bar version — only how those values are
+// consumed (marker position instead of fill width) has changed. The label
+// is now a colored chip (dot + text) inline with the rail, not a plain
+// mono text node below/beside it.
+// Rendered only if a due date exists — no rail at all otherwise.
 
 function renderDueDateBar(container, dueDate, warningDays) {
   if (!dueDate) return;
@@ -1100,13 +1266,18 @@ function renderDueDateBar(container, dueDate, warningDays) {
   else if (daysRemaining === 0) label = "Due today";
   else                           label = `Due in ${daysRemaining}d`;
 
-  const row     = container.createDiv({ cls: "ak-due-row" });
-  const barWrap = row.createDiv({ cls: "ak-due-bar-wrap" });
-  const fill    = barWrap.createDiv({ cls: "ak-due-bar-fill" });
-  fill.style.width           = `${fillPct}%`;
-  fill.style.backgroundColor = fillColor;
-  if (isOverdue) fill.addClass("ak-due-bar-overdue");
-  row.createDiv({ cls: "ak-due-label" }).textContent = label;
+  const row      = container.createDiv({ cls: "ak-due-row" });
+  const railWrap = row.createDiv({ cls: "ak-due-rail-wrap" });
+  const marker   = railWrap.createDiv({ cls: "ak-due-marker" });
+  marker.style.left            = `${fillPct}%`;
+  marker.style.backgroundColor = fillColor;
+  if (isOverdue) marker.addClass("ak-due-marker-overdue");
+
+  const chip = row.createDiv({ cls: "ak-due-chip" });
+  chip.style.setProperty("--ak-due-chip-color", fillColor);
+  chip.createDiv({ cls: "ak-due-chip-dot" }).style.backgroundColor = fillColor;
+  chip.createSpan({ cls: "ak-due-chip-label", text: label });
+  if (isOverdue) chip.addClass("ak-due-chip-overdue");
 }
 
 // ─── CardRenderer ─────────────────────────────────────────────────────────────
@@ -1139,19 +1310,23 @@ function renderCard(container, action, columnId, borderColor, pillFields, callba
     }
   });
   titleRow.createDiv({ cls: "ak-card-title" }).textContent = action.name;
+  renderDotRow(titleRow, action.statusChanged);
 
   if (pillFields.length > 0) {
     const parts = [];
     for (const field of pillFields) {
       const val = action.frontmatter[field.frontmatterKey];
       if (val !== null && val !== undefined && val !== "")
-        parts.push(`${field.label}: ${val}`);
+        parts.push({ label: field.label, value: val });
     }
-    if (parts.length > 0)
-      card.createDiv({ cls: "ak-card-meta-row" }).textContent = parts.join(" \xB7 ");
+    if (parts.length > 0) {
+      const metaRow = card.createDiv({ cls: "ak-card-meta-row" });
+      for (const p of parts) {
+        metaRow.createSpan({ cls: "ak-card-meta-chip", text: `${p.label}: ${p.value}` });
+      }
+    }
   }
 
-  renderDotRow(card, action.statusChanged);
   renderDueDateBar(card, action.dueDate, dueDateWarningDays);
 
   card.addEventListener("click",    e => { e.preventDefault(); callbacks.onClick(action); });
@@ -1405,6 +1580,7 @@ var NewActionModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("ak-new-action-modal");
+    contentEl.createEl("p", { cls: "ak-modal-eyebrow", text: "New action" });
     contentEl.createEl("h2", { text: "New action note" });
     this.inputEl = contentEl.createEl("input", {
       type: "text",
@@ -1446,6 +1622,7 @@ var StatusPickerModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("ak-new-action-modal");
+    contentEl.createEl("p", { cls: "ak-modal-eyebrow", text: "Status" });
     contentEl.createEl("h2", { text: "Move to which status?" });
     const btnRow = contentEl.createDiv({ cls: "ak-status-picker-btn-row" });
     for (const opt of this.statusOptions) {
@@ -1484,6 +1661,7 @@ var PriorityPickerModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("ak-new-action-modal");
+    contentEl.createEl("p", { cls: "ak-modal-eyebrow", text: "Priority" });
     contentEl.createEl("h2", { text: "Set priority" });
     const btnRow = contentEl.createDiv({ cls: "ak-priority-picker-btn-row" });
     for (const opt of this.options) {
@@ -1525,10 +1703,17 @@ var KanbanBoardRenderer = class {
     this.dndHandler      = new DragDropHandler();
     this.rendering       = false;
     this.pendingRender   = false;
+    // Embedded-board title bar (see renderTitleBar()) — isCollapsed is
+    // session-local only, not persisted to disk, so it always starts
+    // expanded again the next time the note is opened. boardTitle is set
+    // once from render()'s titleText param and doesn't change afterward.
+    this.boardTitle  = "Action Kanban";
+    this.isCollapsed = false;
   }
 
-  async render(container, initialFilter) {
+  async render(container, initialFilter, isEmbedded, titleText) {
     if (initialFilter) this.activeFilters = new Set([initialFilter]);
+    if (titleText) this.boardTitle = titleText;
     if (!container.hasClass("ak-board-root")) {
       container.addClass("ak-board-root");
       // Catch-all: stop any click inside the board (empty space, columns,
@@ -1543,6 +1728,7 @@ var KanbanBoardRenderer = class {
         e.stopPropagation();
       });
     }
+    this.isEmbedded = !!isEmbedded;
     await this.renderBoard(container);
   }
 
@@ -1561,6 +1747,8 @@ var KanbanBoardRenderer = class {
     dbg("[ActionKanban] renderBoard: start");
     try {
       container.empty();
+      if (this.isEmbedded) this.renderTitleBar(container);
+      if (this.isCollapsed) return;
       let board;
       try {
         board = await this.controller.loadBoard(Array.from(this.activeFilters));
@@ -1583,6 +1771,36 @@ var KanbanBoardRenderer = class {
         await this.renderBoard(container);
       }
     }
+  }
+
+  // Embedded-only title bar, shown above the toolbar. Clicking it toggles
+  // isCollapsed and re-renders — collapsed hides the toolbar and columns
+  // entirely (see the early return in renderBoard() above), leaving just
+  // this bar visible. Collapse state is session-local only (see the
+  // constructor comment); it isn't written to settings/disk.
+  renderTitleBar(container) {
+    const bar = container.createDiv({ cls: "ak-title-bar" });
+    bar.createSpan({ cls: "ak-title-bar-chevron" }).textContent = this.isCollapsed ? "▸" : "▾";
+    bar.createSpan({ cls: "ak-title-bar-label", text: this.boardTitle });
+    bar.setAttribute("role", "button");
+    bar.setAttribute("tabindex", "0");
+    bar.setAttribute("aria-label", this.isCollapsed ? "Expand board" : "Collapse board");
+    const toggle = () => {
+      this.isCollapsed = !this.isCollapsed;
+      this.renderBoard(container);
+    };
+    bar.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggle();
+    });
+    bar.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        toggle();
+      }
+    });
   }
 
   renderToolbar(container, refresh, settings) {
@@ -1618,7 +1836,18 @@ var KanbanBoardRenderer = class {
     }
 
     const rightGroup = toolbar.createDiv({ cls: "ak-toolbar-right" });
-    const newBtn = rightGroup.createEl("button", { cls: "ak-new-action-btn", text: "New action" });
+    const newBtn = rightGroup.createEl("button", { cls: "ak-new-action-btn" });
+    const newBtnIcon = newBtn.createSvg("svg", {
+      cls: "ak-new-action-icon",
+      attr: {
+        width: "18", height: "18", viewBox: "0 0 24 24", fill: "none",
+        stroke: "currentColor", "stroke-width": "2.5",
+        "stroke-linecap": "round", "stroke-linejoin": "round"
+      }
+    });
+    newBtnIcon.createSvg("line", { attr: { x1: "12", y1: "5", x2: "12", y2: "19" } });
+    newBtnIcon.createSvg("line", { attr: { x1: "5",  y1: "12", x2: "19", y2: "12" } });
+    newBtn.createSpan({ text: "New action" });
     newBtn.addEventListener("click", async e => {
       e.preventDefault();
       e.stopPropagation();
@@ -1657,10 +1886,10 @@ var KanbanBoardRenderer = class {
 
     // Refresh icon button
     const refreshBtn = rightGroup.createDiv({ cls: "ak-refresh-btn clickable-icon" });
-    refreshBtn.setAttribute("aria-label", "Refresh Kanban Board");
+    refreshBtn.setAttribute("aria-label", "Refresh Kanban board");
     const svg = refreshBtn.createSvg("svg", {
       attr: {
-        width: "16", height: "16", viewBox: "0 0 24 24", fill: "none",
+        width: "20", height: "20", viewBox: "0 0 24 24", fill: "none",
         stroke: "currentColor", "stroke-width": "2",
         "stroke-linecap": "round", "stroke-linejoin": "round"
       }
@@ -1939,6 +2168,21 @@ if (typeof import_obsidian6.AbstractInputSuggest === "function") {
 // section and are called fresh on every display() and after any add/remove
 // row action, rather than trying to patch the DOM incrementally.
 
+// Picks black or white text against an arbitrary user-chosen #rrggbb
+// status color, using the standard WCAG-style relative luminance formula.
+// Used only for the checked-state status pills in the Columns table, where
+// the pill background is filled solid with the status's own color and a
+// hardcoded white would be unreadable against light status colors.
+function getReadableTextColor(hex) {
+  const clean = hex.replace("#", "");
+  const r = parseInt(clean.substring(0, 2), 16) / 255;
+  const g = parseInt(clean.substring(2, 4), 16) / 255;
+  const b = parseInt(clean.substring(4, 6), 16) / 255;
+  const toLinear = (c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const luminance = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  return luminance > 0.5 ? "#1a1a1a" : "#ffffff";
+}
+
 var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -1949,8 +2193,51 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("ak-settings");
-    new import_obsidian6.Setting(containerEl).setName("Folders").setHeading();
-    new import_obsidian6.Setting(containerEl)
+
+    // Tab bar — four topic groups (Structure / Behaviour / Appearance /
+    // Debugging), replacing the previous single long flat scroll. No
+    // native Obsidian API for tabs inside a PluginSettingTab exists (Setting
+    // has no collapsible/tab concept) — this is a hand-built pattern, the
+    // same approach other community plugins (e.g. Shell Commands) use: a
+    // row of buttons toggling which panel <div> is visible, all built on
+    // plain containerEl.createDiv()/createEl() the same way the rest of
+    // this file already does. this._activeSettingsTab persists across
+    // display() re-renders within the same settings-tab session (e.g.
+    // after adding a status triggers a re-render) but always resets to
+    // the first tab when Settings is freshly reopened — no separate
+    // setting needed to remember it long-term.
+    if (!this._activeSettingsTab) this._activeSettingsTab = "structure";
+    const TABS = [
+      { id: "structure",  label: "Structure"  },
+      { id: "behaviour",  label: "Behaviour"  },
+      { id: "appearance", label: "Appearance" },
+      { id: "debugging",  label: "Debugging"  }
+    ];
+    const tabBar = containerEl.createDiv({ cls: "ak-settings-tabbar" });
+    const panels = {};
+    for (const tab of TABS) {
+      const btn = tabBar.createEl("button", {
+        cls: "ak-settings-tab" + (this._activeSettingsTab === tab.id ? " ak-settings-tab--active" : ""),
+        text: tab.label
+      });
+      btn.addEventListener("click", e => {
+        e.preventDefault();
+        this._activeSettingsTab = tab.id;
+        this.display();
+      });
+    }
+    for (const tab of TABS) {
+      panels[tab.id] = containerEl.createDiv({ cls: "ak-settings-panel" });
+      if (this._activeSettingsTab !== tab.id) panels[tab.id].addClass("ak-settings-panel--hidden");
+    }
+
+    // ── Structure tab: Folders, Note identification, Statuses, Columns,
+    // Card meta fields — everything about what data the board reads and
+    // how it's organized.
+    const structureEl = panels.structure;
+
+    new import_obsidian6.Setting(structureEl).setName("Folders").setHeading();
+    new import_obsidian6.Setting(structureEl)
       .setName("Actions folder")
       .setDesc("Vault folder that contains your Action notes. Example: '5 Tasks/Actions'. Required. Start typing to see matching folders. Existing open boards need a manual refresh to pick up this change.")
       .addText(t => {
@@ -1972,22 +2259,22 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
         }
       });
 
-    new import_obsidian6.Setting(containerEl).setName("Note identification").setHeading();
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(structureEl).setName("Note identification").setHeading();
+    new import_obsidian6.Setting(structureEl)
       .setName("Frontmatter type field")
       .setDesc("YAML key to identify Action notes. Default: 'Type'. Accepts scalar or list values. Existing open boards need a manual refresh to pick up this change.")
       .addText(t => t.setPlaceholder("Type").setValue(this.plugin.settings.actionTypeField).onChange(async v => {
         this.plugin.settings.actionTypeField = v.trim() || "Type";
         await this.plugin.saveSettings();
       }));
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(structureEl)
       .setName("Frontmatter type value")
       .setDesc("Value the type field must contain. Default: 'Action'. Existing open boards need a manual refresh to pick up this change.")
       .addText(t => t.setPlaceholder("Action").setValue(this.plugin.settings.actionTypeValue).onChange(async v => {
         this.plugin.settings.actionTypeValue = v.trim() || "Action";
         await this.plugin.saveSettings();
       }));
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(structureEl)
       .setName("Due date field")
       .setDesc("Frontmatter key for the due date. Fallbacks: 'due_date', 'Due Date', 'dueDate'. Default: 'Due Date'. Existing open boards need a manual refresh to pick up this change.")
       .addText(t => t.setPlaceholder("Due Date").setValue(this.plugin.settings.dueDateField).onChange(async v => {
@@ -1995,22 +2282,76 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
         await this.plugin.saveSettings();
       }));
 
-    new import_obsidian6.Setting(containerEl).setName("Board behaviour").setHeading();
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(structureEl).setName("Statuses").setHeading();
+    structureEl.createEl("p", {
+      cls: "ak-settings-hint",
+      text: "Each status maps to a frontmatter value (e.g. 'status: 2 in progress'). The ID must exactly match. Existing open boards need a manual refresh to pick up changes made here."
+    });
+    const validationEl = structureEl.createDiv({ cls: "ak-settings-validation" });
+    const statusTable  = structureEl.createDiv({ cls: "ak-settings-table" });
+    this._renderStatusRows(statusTable, validationEl);
+    structureEl.createEl("p", {
+      cls: "ak-settings-hint",
+      text: "\"Done\" marks a status as a completion state. Any column containing at least one Done status becomes a Done column: its cards are hidden once older than \"Done cutoff days\" (below) since their last status change, and empty priority groups in it are collapsed rather than shown."
+    });
+    new import_obsidian6.Setting(structureEl).addButton(btn =>
+      btn.setButtonText("Add status").setClass("ak-settings-add-btn").onClick(async () => {
+        this.plugin.settings.statuses.push({ id: "new-status", label: "New Status", color: "#6B7280", isDone: false });
+        await this.plugin.saveSettings(); this.display();
+      })
+    );
+
+    new import_obsidian6.Setting(structureEl).setName("Columns").setHeading();
+    structureEl.createEl("p", {
+      cls: "ak-settings-hint",
+      text: "Columns group one or more statuses. Every status should be assigned to exactly one column. Existing open boards need a manual refresh to pick up changes made here."
+    });
+    const colTable = structureEl.createDiv({ cls: "ak-settings-table" });
+    this._renderColumnRows(colTable, validationEl);
+    new import_obsidian6.Setting(structureEl).addButton(btn =>
+      btn.setButtonText("Add column").setClass("ak-settings-add-btn").onClick(async () => {
+        this.plugin.settings.columns.push({ id: `col-${Date.now()}`, label: "New Column", statusIds: [] });
+        await this.plugin.saveSettings(); this.display();
+      })
+    );
+
+    this._validateSettings(validationEl);
+
+    new import_obsidian6.Setting(structureEl).setName("Card meta fields").setHeading();
+    structureEl.createEl("p", {
+      cls: "ak-settings-hint",
+      text: "Optional extra frontmatter fields shown as a small line under each card's title (e.g. 'Assignee: Alex · Estimate: 3'). A field only appears on a card if that note has a non-empty value for it. Existing open boards need a manual refresh to pick up changes made here."
+    });
+    const pillTable = structureEl.createDiv({ cls: "ak-settings-table" });
+    this._renderPillFieldRows(pillTable);
+    new import_obsidian6.Setting(structureEl).addButton(btn =>
+      btn.setButtonText("Add pill field").setClass("ak-settings-add-btn").onClick(async () => {
+        this.plugin.settings.pillFields.push({ label: "New Field", frontmatterKey: "new_field" });
+        await this.plugin.saveSettings(); this.display();
+      })
+    );
+
+    // ── Behaviour tab: due-date window, done cutoff, dot size, priority
+    // grouping, name-prompt skip, tilt — runtime behavior tuning, distinct
+    // from both data structure and visual appearance.
+    const behaviourEl = panels.behaviour;
+
+    new import_obsidian6.Setting(behaviourEl).setName("Board behaviour").setHeading();
+    new import_obsidian6.Setting(behaviourEl)
       .setName("Due date warning window (days)")
       .setDesc("Days before due date at which urgency bar starts filling. Default: 7. Existing open boards need a manual refresh to pick up this change.")
       .addText(t => t.setPlaceholder("7").setValue(String(this.plugin.settings.dueDateWarningDays)).onChange(async v => {
         const n = parseInt(v, 10);
         if (!isNaN(n) && n > 0) { this.plugin.settings.dueDateWarningDays = n; await this.plugin.saveSettings(); }
       }));
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(behaviourEl)
       .setName("Done cutoff days")
       .setDesc("Cards in a Done column older than this many days are hidden. 0 = always show all. Default: 3. Existing open boards need a manual refresh to pick up this change.")
       .addText(t => t.setPlaceholder("3").setValue(String(this.plugin.settings.doneCutoffDays)).onChange(async v => {
         const n = parseInt(v, 10);
         if (!isNaN(n) && n >= 0) { this.plugin.settings.doneCutoffDays = n; await this.plugin.saveSettings(); }
       }));
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(behaviourEl)
       .setName("Days-in-status dot size")
       .setDesc("Diameter (px) of each dot in the days-in-status row. Default: 7. Allowed range: 0–10.5 (-100% to +50% of default). Applies immediately to open boards.")
       .addText(t => t.setPlaceholder("7").setValue(String(this.plugin.settings.dotSizePx)).onChange(async v => {
@@ -2021,21 +2362,21 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
           this.plugin.applyDotSize();
         }
       }));
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(behaviourEl)
       .setName("Group cards by priority")
       .setDesc("ON: cards are grouped by priority within each column with High/Medium/Low separators. OFF: all cards in a column are shown in a single flat list sorted by order; priority is still shown on each card but does not affect position. Existing open boards need a manual refresh to pick up this change.")
       .addToggle(t => t.setValue(this.plugin.settings.priorityGrouping).onChange(async v => {
         this.plugin.settings.priorityGrouping = v;
         await this.plugin.saveSettings();
       }));
-    new import_obsidian6.Setting(containerEl)
-      .setName("Skip name prompt on New Action")
+    new import_obsidian6.Setting(behaviourEl)
+      .setName("Skip name prompt on new action")
       .setDesc("ON: the 'New Action' button/command creates the note immediately, titled 'Untitled', with no name prompt from Action Kanban. Use this if a Templater 'Folder Template' is already configured to auto-trigger in your Actions folder and asks for the note name itself — this avoids being asked for the name twice. OFF (default): Action Kanban asks for the note name itself.")
       .addToggle(t => t.setValue(this.plugin.settings.skipNewActionNamePrompt).onChange(async v => {
         this.plugin.settings.skipNewActionNamePrompt = v;
         await this.plugin.saveSettings();
       }));
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(behaviourEl)
       .setName("Tilt collapsed columns")
       .setDesc("ON: a collapsed column becomes a narrow vertical strip (rotated title) spanning the full board height, and the freed width is shared equally by the remaining columns — similar to Trello's collapsed lists. OFF (default): a collapsed column stays a short header-only box at full width. Existing open boards need a manual refresh to pick up this change.")
       .addToggle(t => t.setValue(this.plugin.settings.tiltCollapsedColumns).onChange(async v => {
@@ -2043,53 +2384,19 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
         await this.plugin.saveSettings();
       }));
 
-    new import_obsidian6.Setting(containerEl).setName("Statuses").setHeading();
-    containerEl.createEl("p", {
-      cls: "ak-settings-hint",
-      text: "Each status maps to a frontmatter value (e.g. 'status: 2 in progress'). The ID must exactly match. Existing open boards need a manual refresh to pick up changes made here."
-    });
-    const validationEl = containerEl.createDiv({ cls: "ak-settings-validation" });
-    const statusTable  = containerEl.createDiv({ cls: "ak-settings-table" });
-    this._renderStatusRows(statusTable, validationEl);
-    new import_obsidian6.Setting(containerEl).addButton(btn =>
-      btn.setButtonText("Add status").onClick(async () => {
-        this.plugin.settings.statuses.push({ id: "new-status", label: "New Status", color: "#6B7280", isDone: false });
-        await this.plugin.saveSettings(); this.display();
-      })
-    );
+    // ── Appearance tab: Custom colours, Accent palette, Background image —
+    // the visually-driven, color/photo-picker-heavy sections. The two
+    // color-picker groups are wrapped in <details>/<summary> (collapsed by
+    // default) rather than a plain heading, since these are the two
+    // biggest sources of scroll length (8 and 14 rows respectively) —
+    // this is the actual space-saving Simo asked about. No native
+    // Setting.collapsible() API exists; <details> is the simplest correct
+    // native-HTML tool for this (built-in expand/collapse, accessible by
+    // default, no extra JS state needed beyond the element itself).
+    const appearanceEl = panels.appearance;
 
-    new import_obsidian6.Setting(containerEl).setName("Columns").setHeading();
-    containerEl.createEl("p", {
-      cls: "ak-settings-hint",
-      text: "Columns group one or more statuses. Every status should be assigned to exactly one column. Existing open boards need a manual refresh to pick up changes made here."
-    });
-    const colTable = containerEl.createDiv({ cls: "ak-settings-table" });
-    this._renderColumnRows(colTable, validationEl);
-    new import_obsidian6.Setting(containerEl).addButton(btn =>
-      btn.setButtonText("Add column").onClick(async () => {
-        this.plugin.settings.columns.push({ id: `col-${Date.now()}`, label: "New Column", statusIds: [] });
-        await this.plugin.saveSettings(); this.display();
-      })
-    );
-
-    this._validateSettings(validationEl);
-
-    new import_obsidian6.Setting(containerEl).setName("Card meta fields").setHeading();
-    containerEl.createEl("p", {
-      cls: "ak-settings-hint",
-      text: "Optional extra frontmatter fields shown as a small line under each card's title (e.g. 'Assignee: Alex · Estimate: 3'). A field only appears on a card if that note has a non-empty value for it. Existing open boards need a manual refresh to pick up changes made here."
-    });
-    const pillTable = containerEl.createDiv({ cls: "ak-settings-table" });
-    this._renderPillFieldRows(pillTable);
-    new import_obsidian6.Setting(containerEl).addButton(btn =>
-      btn.setButtonText("Add pill field").onClick(async () => {
-        this.plugin.settings.pillFields.push({ label: "New Field", frontmatterKey: "new_field" });
-        await this.plugin.saveSettings(); this.display();
-      })
-    );
-
-    new import_obsidian6.Setting(containerEl).setName("Appearance").setHeading();
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(appearanceEl).setName("Appearance").setHeading();
+    new import_obsidian6.Setting(appearanceEl)
       .setName("Custom colours")
       .setDesc("Override the board's background colours per theme. When off, Obsidian's standard theme colours are used everywhere, exactly as before.")
       .addToggle(t => t.setValue(this.plugin.settings.customColorsEnabled).onChange(async v => {
@@ -2100,6 +2407,8 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
       }));
 
     if (this.plugin.settings.customColorsEnabled) {
+      const colorDetails = appearanceEl.createEl("details", { cls: "ak-settings-details" });
+      colorDetails.createEl("summary", { cls: "ak-settings-summary", text: "Colour overrides (8)" });
       const colorFields = [
         { key: "toolbarBgLight", label: "Toolbar background — light theme" },
         { key: "toolbarBgDark",  label: "Toolbar background — dark theme"  },
@@ -2111,7 +2420,7 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
         { key: "cardBgDark",    label: "Card background — dark theme"   }
       ];
       for (const f of colorFields) {
-        new import_obsidian6.Setting(containerEl)
+        new import_obsidian6.Setting(colorDetails)
           .setName(f.label)
           .addColorPicker(cp => cp.setValue(this.plugin.settings[f.key]).onChange(async v => {
             this.plugin.settings[f.key] = v;
@@ -2121,8 +2430,117 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
       }
     }
 
-    new import_obsidian6.Setting(containerEl).setName("Debugging").setHeading();
-    new import_obsidian6.Setting(containerEl)
+    new import_obsidian6.Setting(appearanceEl).setName("Accent colours").setHeading().setClass("ak-settings-heading--accent");
+    new import_obsidian6.Setting(appearanceEl)
+      .setName("Use custom accent palette")
+      .setDesc("Replace Obsidian's default accent colour with a themed palette (toolbar active state, column header hover, and similar accents). When off, Obsidian's own accent/status colours are used everywhere, exactly as before.")
+      .addToggle(t => t.setValue(this.plugin.settings.accentPaletteEnabled).onChange(async v => {
+        this.plugin.settings.accentPaletteEnabled = v;
+        await this.plugin.saveSettings();
+        this.plugin.applyAccentPalette();
+        this.display();
+      }));
+
+    if (this.plugin.settings.accentPaletteEnabled) {
+      const accentDetails = appearanceEl.createEl("details", { cls: "ak-settings-details" });
+      accentDetails.createEl("summary", { cls: "ak-settings-summary", text: "Accent colours (2)" });
+      // Only the primary (copper) accent is exposed here — it's the only
+      // one actually wired to anything visible (tabs, buttons, pills,
+      // hovers throughout the plugin). Blue/Violet/Green/Red/Amber/Cyan
+      // exist as saved settings and CSS variables for future use, but
+      // nothing currently reads them, so showing pickers for them would
+      // mislead the user into thinking they change something today.
+      const accentFields = [
+        { key: "accentCopperLight", label: "Primary accent — light theme" },
+        { key: "accentCopperDark",  label: "Primary accent — dark theme"  }
+      ];
+      for (const f of accentFields) {
+        new import_obsidian6.Setting(accentDetails)
+          .setName(f.label)
+          .addColorPicker(cp => cp.setValue(this.plugin.settings[f.key]).onChange(async v => {
+            this.plugin.settings[f.key] = v;
+            await this.plugin.saveSettings();
+            this.plugin.applyAccentPalette();
+          }));
+      }
+      new import_obsidian6.Setting(accentDetails)
+        .setName("Reset to defaults")
+        .setDesc("Restore the primary accent colours to their original values.")
+        .addButton(btn =>
+          btn.setButtonText("Reset").setClass("ak-settings-add-btn").onClick(async () => {
+            this.plugin.settings.accentCopperLight = DEFAULT_SETTINGS.accentCopperLight;
+            this.plugin.settings.accentCopperDark  = DEFAULT_SETTINGS.accentCopperDark;
+            await this.plugin.saveSettings();
+            this.plugin.applyAccentPalette();
+            this.display();
+          })
+        );
+    }
+
+    new import_obsidian6.Setting(appearanceEl).setName("Background image").setHeading();
+    new import_obsidian6.Setting(appearanceEl)
+      .setName("Use background image")
+      .setDesc("Show an image behind the whole board (toolbar and columns). When off, the board's normal background colour is used, exactly as before.")
+      .addToggle(t => t.setValue(this.plugin.settings.backgroundImageEnabled).onChange(async v => {
+        this.plugin.settings.backgroundImageEnabled = v;
+        await this.plugin.saveSettings();
+        this.plugin.applyBackgroundImage();
+        this.display();
+      }));
+
+    if (this.plugin.settings.backgroundImageEnabled) {
+      new import_obsidian6.Setting(appearanceEl)
+        .setName("Background image path")
+        .setDesc("Path to an image inside this vault, e.g. \"Attachments/board-bg.png\". A path outside the vault (e.g. a Windows folder path) will not work — plugins can't reach the filesystem directly, only vault-relative paths. Ignored while auto-update from Bing (below) is on, since Bing manages its own image file.")
+        .addText(t => t.setPlaceholder("Attachments/board-bg.png")
+          .setValue(this.plugin.settings.backgroundImagePath)
+          .onChange(async v => {
+            this.plugin.settings.backgroundImagePath = v.trim();
+            await this.plugin.saveSettings();
+            this.plugin.applyBackgroundImage();
+          }));
+      new import_obsidian6.Setting(appearanceEl)
+        .setName("Auto-update from Bing")
+        .setDesc("Once per day, download Bing's \"image of the day\" and use it as the background — stored in its own file (in the same folder as the path above, if set) so your own manually-chosen image, if any, is never overwritten. Makes a network request to bing.com. The photo credit is shown in small text over the bottom-right corner of the board.")
+        .addToggle(t => t.setValue(this.plugin.settings.bingBackgroundEnabled).onChange(async v => {
+          this.plugin.settings.bingBackgroundEnabled = v;
+          if (!v) {
+            this.plugin.settings.bingBackgroundAttribution = "";
+          }
+          await this.plugin.saveSettings();
+          if (v) {
+            // Force an immediate fetch on enable, not a wait-until-tomorrow —
+            // bingLastFetchedDate is cleared so today's date won't match it.
+            this.plugin.settings.bingLastFetchedDate = "";
+            await this.plugin.saveSettings();
+            await this.plugin.refreshBingBackground();
+          } else {
+            // Turning Bing off reverts display to the manual path (if any)
+            // without needing to touch backgroundImagePath at all — it was
+            // never modified by Bing in the first place.
+            this.plugin.applyBackgroundImage();
+          }
+          this.display();
+        }));
+      new import_obsidian6.Setting(appearanceEl)
+        .setName("Overlay contrast")
+        .setDesc("How solid toolbar buttons and column backgrounds are over the image — higher keeps them more readable, lower shows more of the image through them.")
+        .addSlider(sl => sl.setLimits(0, 100, 5)
+          .setValue(this.plugin.settings.backgroundOverlayOpacity)
+          .setDynamicTooltip()
+          .onChange(async v => {
+            this.plugin.settings.backgroundOverlayOpacity = v;
+            await this.plugin.saveSettings();
+            this.plugin.applyBackgroundImage();
+          }));
+    }
+
+    // ── Debugging tab: separate, different audience (troubleshooting, not
+    // day-to-day configuration).
+    const debuggingEl = panels.debugging;
+
+    new import_obsidian6.Setting(debuggingEl).setName("Debugging").setHeading();
+    new import_obsidian6.Setting(debuggingEl)
       .setName("Enable debug logging")
       .setDesc("Logs detailed diagnostic info to the developer console (Ctrl+Shift+I). Leave off unless troubleshooting — this can be verbose.")
       .addToggle(t => t.setValue(this.plugin.settings.debugLogging).onChange(async v => {
@@ -2170,14 +2588,17 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
       const colorInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "color", value: status.color });
       colorInput.addEventListener("change", async () => {
         this.plugin.settings.statuses[idx].color = colorInput.value;
-        await this.plugin.saveSettings();
+        await this.plugin.saveSettings(); this.display();
       });
 
-      const doneInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "checkbox" });
+      const doneCell = row.createDiv({ cls: "ak-settings-cell" });
+      const doneToggle = doneCell.createEl("label", { cls: "ak-settings-toggle" });
+      const doneInput = doneToggle.createEl("input", { type: "checkbox" });
       doneInput.checked = status.isDone;
+      doneToggle.createEl("span", { cls: "ak-settings-toggle-track" });
       doneInput.addEventListener("change", async () => {
         this.plugin.settings.statuses[idx].isDone = doneInput.checked;
-        await this.plugin.saveSettings();
+        await this.plugin.saveSettings(); this.display();
       });
 
       const removeBtn = row.createDiv({ cls: "ak-settings-cell" }).createEl("button", { text: "Remove" });
@@ -2226,10 +2647,10 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
   // StatusPickerModal, shown when a drop target has more than one).
   _renderColumnRows(container, validationEl) {
     container.empty();
-    const header = container.createDiv({ cls: "ak-settings-row ak-settings-row--header" });
+    const header = container.createDiv({ cls: "ak-settings-row ak-settings-row--header ak-settings-row--columns" });
     ["Label", "Statuses included", ""].forEach(h => header.createDiv({ cls: "ak-settings-cell", text: h }));
     this.plugin.settings.columns.forEach((col, idx) => {
-      const row = container.createDiv({ cls: "ak-settings-row" });
+      const row = container.createDiv({ cls: "ak-settings-row ak-settings-row--columns" });
 
       const labelInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "text", value: col.label });
       labelInput.addEventListener("change", async () => {
@@ -2240,13 +2661,20 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
       const statusCell = row.createDiv({ cls: "ak-settings-cell ak-settings-cell--multi" });
       for (const status of this.plugin.settings.statuses) {
         const isPlaceholder = status.id === "new-status";
-        const wrap = statusCell.createDiv({ cls: "ak-settings-check-wrap" });
-        const cb   = wrap.createEl("input", { type: "checkbox" });
-        cb.checked  = col.statusIds.includes(status.id);
-        cb.id       = `col-${idx}-status-${status.id}`;
-        cb.disabled = isPlaceholder;
-        cb.addEventListener("change", async () => {
-          if (cb.checked) {
+        const isChecked     = col.statusIds.includes(status.id);
+        const pill = statusCell.createEl("button", {
+          cls: "ak-settings-status-pill" + (isChecked ? " ak-settings-status-pill--checked" : ""),
+          text: isPlaceholder ? `${status.label} (set ID first)` : status.label
+        });
+        pill.type = "button"; // prevents accidental form-submit behavior
+        pill.disabled = isPlaceholder;
+        pill.setAttribute("aria-pressed", String(isChecked));
+        if (isPlaceholder) pill.addClass("ak-settings-status-pill--placeholder");
+        pill.style.setProperty("--ak-status-pill-color", status.color);
+        pill.style.setProperty("--ak-status-pill-text", getReadableTextColor(status.color));
+        pill.addEventListener("click", async () => {
+          const nowChecked = !col.statusIds.includes(status.id);
+          if (nowChecked) {
             if (!this.plugin.settings.columns[idx].statusIds.includes(status.id))
               this.plugin.settings.columns[idx].statusIds.push(status.id);
           } else {
@@ -2254,11 +2682,10 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
               this.plugin.settings.columns[idx].statusIds.filter(id => id !== status.id);
           }
           await this.plugin.saveSettings();
+          pill.toggleClass("ak-settings-status-pill--checked", nowChecked);
+          pill.setAttribute("aria-pressed", String(nowChecked));
           this._validateSettings(validationEl);
         });
-        const lbl = wrap.createEl("label", { text: isPlaceholder ? `${status.label} (set ID first)` : status.label });
-        lbl.htmlFor = cb.id;
-        if (isPlaceholder) lbl.addClass("ak-settings-label--placeholder");
       }
 
       const removeBtn = row.createDiv({ cls: "ak-settings-cell" }).createEl("button", { text: "Remove" });
@@ -2297,6 +2724,8 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
     AK_DEBUG = this.settings.debugLogging;
     this.applyCustomColors();
     this.applyDotSize();
+    this.applyAccentPalette();
+    this.applyBackgroundImage();
 
     // Adapters
     this.actionRepo      = new ObsidianActionRepository(
@@ -2377,6 +2806,14 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
     dbg("[AK-PLUGIN] calling _bootstrapOnLoad");
     this.app.workspace.onLayoutReady(() => this._bootstrapOnLoad());
 
+    // Bing background refresh — same onLayoutReady deferral as bootstrap
+    // above, so the auto-fetch (if enabled) doesn't race initial vault
+    // indexing or slow down startup. Kept as its own registration, not
+    // merged into _bootstrapOnLoad's callback, so a failure in one can
+    // never affect the other. No-ops internally if the feature is off or
+    // already fetched today — see refreshBingBackground().
+    this.app.workspace.onLayoutReady(() => this.refreshBingBackground());
+
     // Views / commands / settings
     this.registerView(VIEW_TYPE_KANBAN,
       leaf => new KanbanView(leaf, this.boardController, () => this.settings, () => this.saveSettings())
@@ -2404,15 +2841,26 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
     // Code block
     this.registerMarkdownCodeBlockProcessor("action-kanban", async (source, el, ctx) => {
       let initialFilter;
+      let titleText;
       for (const line of source.split("\n")) {
         const m = line.match(/^filter\s*:\s*(\S+)/);
         if (m) {
           const v = m[1].trim();
           if (v === "high" || v === "medium" || v === "low") initialFilter = v;
         }
+        const t = line.match(/^title\s*:\s*(.+)/);
+        if (t) {
+          const v = t[1].trim();
+          if (v) titleText = v;
+        }
       }
+      // Marks this render as an embed (vs. the standalone KanbanView tab),
+      // so styles.css can apply embed-only treatment — e.g. rounded outer
+      // corners, which would look wrong on the standalone view where the
+      // board fills its entire pane edge-to-edge.
+      el.addClass("ak-board-root--embedded");
       const renderer = new KanbanBoardRenderer(this.app, this.boardController, () => this.settings, undefined, () => this.saveSettings());
-      await renderer.render(el, initialFilter);
+      await renderer.render(el, initialFilter, true, titleText);
 
       // Auto-refresh on external edits to Action notes (e.g. hand-editing
       // frontmatter). Filtered to the Actions folder so unrelated vault
@@ -2480,6 +2928,46 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
     if (!this.settings.columnBgDark)  this.settings.columnBgDark  = DEFAULT_SETTINGS.columnBgDark;
     if (!this.settings.cardBgLight)   this.settings.cardBgLight   = DEFAULT_SETTINGS.cardBgLight;
     if (!this.settings.cardBgDark)    this.settings.cardBgDark    = DEFAULT_SETTINGS.cardBgDark;
+    if (this.settings.accentPaletteEnabled === undefined)
+      this.settings.accentPaletteEnabled = DEFAULT_SETTINGS.accentPaletteEnabled;
+    if (!this.settings.accentCopperLight) this.settings.accentCopperLight = DEFAULT_SETTINGS.accentCopperLight;
+    if (!this.settings.accentCopperDark)  this.settings.accentCopperDark  = DEFAULT_SETTINGS.accentCopperDark;
+    if (!this.settings.accentBlueLight)   this.settings.accentBlueLight   = DEFAULT_SETTINGS.accentBlueLight;
+    if (!this.settings.accentBlueDark)    this.settings.accentBlueDark    = DEFAULT_SETTINGS.accentBlueDark;
+    if (!this.settings.accentVioletLight) this.settings.accentVioletLight = DEFAULT_SETTINGS.accentVioletLight;
+    if (!this.settings.accentVioletDark)  this.settings.accentVioletDark  = DEFAULT_SETTINGS.accentVioletDark;
+    if (!this.settings.accentGreenLight)  this.settings.accentGreenLight  = DEFAULT_SETTINGS.accentGreenLight;
+    if (!this.settings.accentGreenDark)   this.settings.accentGreenDark   = DEFAULT_SETTINGS.accentGreenDark;
+    if (!this.settings.accentRedLight)    this.settings.accentRedLight    = DEFAULT_SETTINGS.accentRedLight;
+    if (!this.settings.accentRedDark)     this.settings.accentRedDark     = DEFAULT_SETTINGS.accentRedDark;
+    if (!this.settings.accentAmberLight)  this.settings.accentAmberLight  = DEFAULT_SETTINGS.accentAmberLight;
+    if (!this.settings.accentAmberDark)   this.settings.accentAmberDark   = DEFAULT_SETTINGS.accentAmberDark;
+    if (!this.settings.accentCyanLight)   this.settings.accentCyanLight   = DEFAULT_SETTINGS.accentCyanLight;
+    if (!this.settings.accentCyanDark)    this.settings.accentCyanDark    = DEFAULT_SETTINGS.accentCyanDark;
+    if (this.settings.backgroundImageEnabled === undefined)
+      this.settings.backgroundImageEnabled = DEFAULT_SETTINGS.backgroundImageEnabled;
+    if (this.settings.backgroundImagePath === undefined)
+      this.settings.backgroundImagePath = DEFAULT_SETTINGS.backgroundImagePath;
+    if (this.settings.bingBackgroundEnabled === undefined)
+      this.settings.bingBackgroundEnabled = DEFAULT_SETTINGS.bingBackgroundEnabled;
+    if (this.settings.bingBackgroundPath === undefined)
+      this.settings.bingBackgroundPath = DEFAULT_SETTINGS.bingBackgroundPath;
+    if (this.settings.bingBackgroundAttribution === undefined)
+      this.settings.bingBackgroundAttribution = DEFAULT_SETTINGS.bingBackgroundAttribution;
+    if (this.settings.bingLastFetchedDate === undefined)
+      this.settings.bingLastFetchedDate = DEFAULT_SETTINGS.bingLastFetchedDate;
+    // One-time repair for vaults that ran the earlier buggy version,
+    // where Bing wrote directly to backgroundImagePath instead of its
+    // own separate path: if Bing is enabled but has no recorded
+    // bingBackgroundPath yet, clear the last-fetched date so the next
+    // onLayoutReady refresh runs immediately and writes to the new,
+    // correctly-separated Bing-owned file instead of leaving Bing mode
+    // silently stuck with nowhere to write.
+    if (this.settings.bingBackgroundEnabled && !this.settings.bingBackgroundPath) {
+      this.settings.bingLastFetchedDate = "";
+    }
+    if (this.settings.backgroundOverlayOpacity === undefined || this.settings.backgroundOverlayOpacity === null)
+      this.settings.backgroundOverlayOpacity = DEFAULT_SETTINGS.backgroundOverlayOpacity;
     // Migration guard: strip any statusId from columns that is not a known status id.
     // Guards against data corruption where a status label (e.g. "To Do") was
     // accidentally stored as a status id in a column's statusIds array.
@@ -2521,6 +3009,161 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
   // Always applied — unlike custom colors, there is no enable/disable toggle.
   applyDotSize() {
     document.body.style.setProperty("--ak-dot-size", `${this.settings.dotSizePx}px`);
+  }
+
+  // Sets (or removes) the 14 CSS custom properties that styles.css reads
+  // for the custom accent palette (--ak-accent-*-light/-dark pairs), and
+  // toggles the .ak-native-palette class on <body>. When accentPaletteEnabled
+  // is false, .ak-native-palette is present, which remaps every
+  // --ak-accent-* token straight to Obsidian's own semantic colors
+  // (--interactive-accent, --color-blue, etc.) in styles.css — so the board
+  // looks exactly as it did before this feature existed, with no per-rule
+  // fallback chain needed the way the background-color overrides use.
+  applyAccentPalette() {
+    const s      = this.settings;
+    const target = document.body;
+    const props  = {
+      "--ak-accent-copper-light": s.accentCopperLight,
+      "--ak-accent-copper-dark":  s.accentCopperDark,
+      "--ak-accent-blue-light":   s.accentBlueLight,
+      "--ak-accent-blue-dark":    s.accentBlueDark,
+      "--ak-accent-violet-light": s.accentVioletLight,
+      "--ak-accent-violet-dark":  s.accentVioletDark,
+      "--ak-accent-green-light":  s.accentGreenLight,
+      "--ak-accent-green-dark":   s.accentGreenDark,
+      "--ak-accent-red-light":    s.accentRedLight,
+      "--ak-accent-red-dark":     s.accentRedDark,
+      "--ak-accent-amber-light":  s.accentAmberLight,
+      "--ak-accent-amber-dark":   s.accentAmberDark,
+      "--ak-accent-cyan-light":   s.accentCyanLight,
+      "--ak-accent-cyan-dark":    s.accentCyanDark
+    };
+    for (const [name, value] of Object.entries(props))
+      target.style.setProperty(name, value);
+    target.classList.toggle("ak-native-palette", !s.accentPaletteEnabled);
+  }
+
+  // Sets (or removes) the --ak-board-bg-image custom property that
+  // styles.css reads via var(--ak-board-bg-image, none) on .ak-board-root
+  // — same body-level-property pattern as applyCustomColors(), so it
+  // applies to every board root (standalone view + any number of embeds)
+  // without touching KanbanBoardRenderer's render path at all. The path is
+  // vault-relative and resolved through app.vault.adapter.getResourcePath()
+  // — a raw OS filesystem path isn't usable here, since plugins run inside
+  // Obsidian's sandboxed renderer, not with direct Node fs access, and a
+  // hardcoded absolute path would break entirely on mobile.
+  applyBackgroundImage() {
+    const s = this.settings;
+    const target = document.body;
+    let url = null;
+    // While Bing mode is on and has a written file, it takes precedence
+    // and uses its own path — bingBackgroundPath, never backgroundImagePath
+    // (that field is the user's manual choice and is never read here while
+    // Bing owns the display, so it's never at risk of being treated as a
+    // Bing-writable target). Falls back to the manual path otherwise.
+    const activePath = (s.bingBackgroundEnabled && s.bingBackgroundPath)
+      ? s.bingBackgroundPath
+      : s.backgroundImagePath;
+    if (s.backgroundImageEnabled && activePath) {
+      try { url = this.app.vault.adapter.getResourcePath(activePath); }
+      catch (err) { console.warn("[ActionKanban] Could not resolve background image path:", err); }
+    }
+    if (url) target.style.setProperty("--ak-board-bg-image", `url("${url}")`);
+    else     target.style.removeProperty("--ak-board-bg-image");
+    // Overlay opacity (0-100 setting -> 0-1 CSS value) for the semi-
+    // transparent backgrounds styles.css applies to toolbar buttons and
+    // columns while an image is active — see the body[style*=...] rules
+    // in styles.css for where this is actually consumed.
+    target.style.setProperty("--ak-bg-overlay-opacity", String(s.backgroundOverlayOpacity / 100));
+    // Bing attribution overlay (bottom-right corner text) — only shown
+    // while Bing mode is on and a fetch has actually populated the
+    // attribution string. Uses a body-level CSS custom property, NOT a
+    // data-* attribute — attr() on a pseudo-element only reads its own
+    // originating element (.ak-board-root), never an ancestor like
+    // <body>, so a data-* attribute here would be invisible to the CSS.
+    // Custom properties inherit to descendants, which is why this works
+    // the same way --ak-board-bg-image does above. JSON.stringify() wraps
+    // the text in literal quote characters and escapes any embedded
+    // quotes/backslashes — content: var(...) requires the value to
+    // already be a valid quoted CSS string, not a bare unquoted one.
+    if (s.bingBackgroundEnabled && s.bingBackgroundAttribution)
+      target.style.setProperty("--ak-bing-attribution-text", JSON.stringify(s.bingBackgroundAttribution));
+    else
+      target.style.removeProperty("--ak-bing-attribution-text");
+  }
+
+  // Fetches Bing's "image of the day" and writes it to a Bing-owned path
+  // (bingBackgroundPath) derived from the same folder as the user's manual
+  // backgroundImagePath, but always a distinct filename — never overwrites
+  // a manually-selected image. Runs at most once per calendar day, gated
+  // by bingLastFetchedDate. Called from onload() via
+  // workspace.onLayoutReady(), same deferral used for _bootstrapOnLoad(),
+  // so this doesn't race initial vault indexing. Fire-and-forget:
+  // network/parse/write failures are caught and logged, never thrown,
+  // since a background-image refresh must never be able to break plugin
+  // load.
+  async refreshBingBackground() {
+    const s = this.settings;
+    if (!s.bingBackgroundEnabled) return;
+    const today = IsoDate.today().value;
+    if (s.bingLastFetchedDate === today) {
+      dbg("[AK-BING] already fetched today, skipping");
+      return;
+    }
+    // Bing writes to its own fixed filename, in the same FOLDER as
+    // backgroundImagePath but never the same file — reusing the exact
+    // path was a real bug: it silently overwrote a manually-selected
+    // background image the first time Bing mode was turned on. Deriving
+    // a distinct filename means enabling Bing can never destroy a
+    // manual image, and turning Bing back off leaves the manual image
+    // (and backgroundImagePath, untouched by this method) exactly as it
+    // was.
+    // normalizePath() first: a raw backslash-separated (Windows-style)
+    // path resolves fine through getResourcePath() (which normalizes
+    // internally), but a bare lastIndexOf("/") on the RAW string would
+    // silently miss the folder entirely on such a path, always falling
+    // back to "Attachments" and writing somewhere the user isn't
+    // looking — this was a real, confirmed bug (Bing images landed in
+    // Attachments/ instead of the user's actual configured folder).
+    const BING_FILENAME = "ak-bing-daily.jpg";
+    const existingPath  = import_obsidian5.normalizePath(s.backgroundImagePath || "");
+    const lastSlash0    = existingPath.lastIndexOf("/");
+    const folder0       = lastSlash0 > -1 ? existingPath.slice(0, lastSlash0) : "Attachments";
+    const bingPath       = folder0 ? `${folder0}/${BING_FILENAME}` : BING_FILENAME;
+
+    try {
+      const metaRes = await import_obsidian5.requestUrl({
+        url: "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US"
+      });
+      const meta  = metaRes.json;
+      const image = meta && meta.images && meta.images[0];
+      if (!image || !image.url) {
+        console.warn("[ActionKanban] Bing background: unexpected API response, skipping");
+        return;
+      }
+      const imageRes = await import_obsidian5.requestUrl({
+        url: `https://www.bing.com${image.url}`
+      });
+      const bytes = imageRes.arrayBuffer;
+
+      // Ensure the parent folder exists — vault.adapter.writeBinary does
+      // not create intermediate folders itself.
+      if (folder0 && !(await this.app.vault.adapter.exists(folder0))) {
+        await this.app.vault.adapter.mkdir(folder0);
+      }
+
+      await this.app.vault.adapter.writeBinary(bingPath, bytes);
+
+      s.bingBackgroundPath         = bingPath;
+      s.backgroundImageEnabled     = true;
+      s.bingBackgroundAttribution  = image.copyright || "";
+      s.bingLastFetchedDate        = today;
+      await this.saveSettings();
+      this.applyBackgroundImage();
+      dbg("[AK-BING] background refreshed:", bingPath);
+    } catch (err) {
+      console.warn("[ActionKanban] Bing background refresh failed:", err);
+    }
   }
 
   // Reveals the existing standalone board tab if one's already open, rather

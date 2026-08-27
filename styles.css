@@ -1,5 +1,11 @@
 /* =====================================================================
    Action Kanban — styles.css
+   Version 12.8.0 — kept in sync with main.js's AK_BUILD_VERSION on every
+   edit that touches this file, so a quick look at this header (or Ctrl+F
+   in DevTools' Sources tab) confirms which build is actually loaded —
+   useful since Obsidian caches styles.css separately from main.js and a
+   plugin disable/enable doesn't always force a re-read of it.
+
    Aesthetic: Modern Apple-inspired. All colours via Obsidian CSS vars
    first; hardcoded hex only where spec §9 provides explicit values.
 
@@ -9,6 +15,27 @@
    renderColumn, etc.); the `ak-` prefix throughout avoids collisions
    with Obsidian's own core classes or other plugins/themes.
    ===================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500&display=swap');
+
+/* ── Restyle tokens (radii, shadows, mono font) ─────────────────────────
+   Added as part of the "refined tokens" restyle pass. --ak-mono keeps a
+   system-mono fallback chain after DM Mono so a blocked/offline font
+   fetch degrades gracefully instead of falling back to the browser
+   default serif/sans. --ak-serif follows the same principle for the
+   title bar's hero-style serif treatment (Settings dashboard's .dgx h1
+   uses Playfair Display; matched here at a much smaller scale for a
+   compact title bar rather than a full-page hero). */
+:root {
+  --ak-radius-sm: 8px;
+  --ak-radius-md: 14px;
+  --ak-radius-lg: 18px;
+  --ak-shadow-card: 0 10px 26px -14px rgba(0, 0, 0, 0.55);
+  --ak-shadow-card-hover: 0 14px 32px -14px rgba(0, 0, 0, 0.6);
+  --ak-mono: 'DM Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --ak-serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
+}
 
 /* ── Custom colours (Settings → Appearance) ────────────────────────────
    The plugin sets/removes the *-override properties on document.body based
@@ -28,14 +55,150 @@ body.theme-dark .ak-board-root {
   --ak-card-bg:   var(--ak-card-bg-dark-override,   var(--background-secondary));
 }
 
+/* ── Accent palette (Settings → Appearance → Accent palette) ───────────
+   Each --ak-accent-* token resolves via light-dark(), which needs
+   color-scheme set explicitly to match Obsidian's *own* theme class —
+   not left to its default, which would follow the OS's colour-scheme
+   preference instead and could resolve the wrong half of the palette
+   whenever the OS and Obsidian themes disagree. */
+body.theme-light { color-scheme: light; }
+body.theme-dark  { color-scheme: dark; }
+
+/* Hex pairs are set (or left at these CSS-level defaults before the
+   plugin's first applyAccentPalette() call) from Settings; the plugin
+   always calls applyAccentPalette() on load and on every change, so in
+   practice these :root values are overwritten by an inline body style
+   almost immediately — kept here only as a safe fallback. */
+:root {
+  --ak-accent-copper-light: #b8663a;
+  --ak-accent-copper-dark:  #d39467;
+  --ak-accent-blue-light:   #2f7f9e;
+  --ak-accent-blue-dark:    #76bfd7;
+  --ak-accent-violet-light: #6f4fa8;
+  --ak-accent-violet-dark:  #ae94d9;
+  --ak-accent-green-light:  #4a7a3a;
+  --ak-accent-green-dark:   #8fbf7a;
+  --ak-accent-red-light:    #b8462f;
+  --ak-accent-red-dark:     #d97a6c;
+  --ak-accent-amber-light:  #9a6f1f;
+  --ak-accent-amber-dark:   #d9b26c;
+  --ak-accent-cyan-light:   #1f7a72;
+  --ak-accent-cyan-dark:    #6fc9c2;
+
+  --ak-accent-copper: light-dark(var(--ak-accent-copper-light), var(--ak-accent-copper-dark));
+  --ak-accent-blue:   light-dark(var(--ak-accent-blue-light),   var(--ak-accent-blue-dark));
+  --ak-accent-violet: light-dark(var(--ak-accent-violet-light), var(--ak-accent-violet-dark));
+  --ak-accent-green:  light-dark(var(--ak-accent-green-light),  var(--ak-accent-green-dark));
+  --ak-accent-red:    light-dark(var(--ak-accent-red-light),    var(--ak-accent-red-dark));
+  --ak-accent-amber:  light-dark(var(--ak-accent-amber-light),  var(--ak-accent-amber-dark));
+  --ak-accent-cyan:   light-dark(var(--ak-accent-cyan-light),   var(--ak-accent-cyan-dark));
+}
+
+/* Native-Obsidian fallback. Applied to <body> whenever
+   accentPaletteEnabled is false (see applyAccentPalette()), so every
+   --ak-accent-* consumer falls back to Obsidian's own semantic colours in
+   one place, with no per-rule var() fallback chain needed. */
+.ak-native-palette {
+  --ak-accent-copper: var(--interactive-accent);
+  --ak-accent-blue:   var(--color-blue);
+  --ak-accent-violet: var(--color-purple);
+  --ak-accent-green:  var(--color-green);
+  --ak-accent-red:    var(--color-red);
+  --ak-accent-amber:  var(--color-orange);
+  --ak-accent-cyan:   var(--color-cyan);
+}
+
 /* ── Board root ────────────────────────────────────────────────────── */
 .ak-board-root {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--ak-board-bg, var(--background-primary));
+  /* position:relative anchors the Bing-attribution ::after overlay below —
+     without it, that absolutely-positioned pseudo-element would escape to
+     the nearest positioned ancestor outside this board root instead of
+     staying pinned to this board's own bottom-right corner. */
+  position: relative;
+  background-color: var(--ak-board-bg, var(--background-primary));
+  /* --ak-board-bg-image is set/removed on <body> by applyBackgroundImage()
+     (Settings → Appearance → Background image). Falls back to "none" —
+     a no-op — when the feature is off or no path is set. */
+  background-image: var(--ak-board-bg-image, none);
+  background-size: cover;
+  background-position: center;
   font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+}
+
+/* Bing "image of the day" attribution — small always-visible, reduced-
+   contrast text pinned to the board's bottom-right corner, showing the
+   photo credit Bing's API returns alongside the image. Only rendered
+   while Bing auto-update is on and a fetch has populated the text.
+   Uses a body-level CSS custom property (--ak-bing-attribution-text, set
+   in applyBackgroundImage()), NOT an attr()-read data-attribute — attr()
+   on a pseudo-element only ever reads its own originating element's
+   attributes, never an ancestor's, so a data-* attribute set on <body>
+   would be invisible to a .ak-board-root::after selector. Custom
+   properties, unlike attr(), inherit down through descendants, which is
+   exactly why --ak-board-bg-image/--ak-bg-overlay-opacity above use the
+   same body-level pattern successfully — this follows suit. The value
+   set in main.js must include literal quote characters around the text
+   (e.g. '"Photo credit"') for `content: var(...)` to treat it as valid
+   string content; see applyBackgroundImage(). z-index keeps it above
+   column content, which would otherwise be able to scroll over it. */
+body[style*="--ak-bing-attribution-text"] .ak-board-root::after {
+  content: var(--ak-bing-attribution-text);
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  font: 500 9px var(--ak-mono);
+  letter-spacing: .02em;
+  color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 5;
+  max-width: 70%;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Rounded outer corners only for the embedded-in-note variant (see the
+   ak-board-root--embedded class added in the code block processor in
+   main.js) — the standalone Kanban tab intentionally stays square, since
+   it fills its pane edge-to-edge and a radius there would look like a
+   rendering glitch rather than a deliberate embed treatment. */
+.ak-board-root--embedded {
+  border-radius: var(--ak-radius-lg);
+}
+
+/* ── Title bar (embedded boards only) ──────────────────────────────────
+   Sits above the toolbar; click toggles renderTitleBar()'s collapse
+   state in main.js. Not shown on the standalone Kanban tab — see the
+   isEmbedded gate around renderTitleBar()'s call site in renderBoard(). */
+.ak-title-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ak-title-bar:hover {
+  background: var(--background-modifier-hover, rgba(0, 0, 0, 0.02));
+}
+
+.ak-title-bar-chevron {
+  font-size: 14px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.ak-title-bar-label {
+  font: 500 31px/1.1 var(--ak-serif);
+  letter-spacing: -.02em;
+  color: var(--text-normal);
 }
 
 /* ── Toolbar ────────────────────────────────────────────────────────── */
@@ -54,6 +217,27 @@ body.theme-dark .ak-board-root {
   flex-shrink: 0;
 }
 
+/* When a board background image is active (Settings → Appearance →
+   Background image), the toolbar's own opaque background would otherwise
+   sit on top of it and block it from showing through — this rule only
+   fires when --ak-board-bg-image is actually set as an inline style on
+   <body> (see applyBackgroundImage()), leaving the toolbar's normal
+   opaque background untouched in every other case. */
+body[style*="--ak-board-bg-image"] .ak-toolbar {
+  background: transparent;
+}
+
+/* Filter buttons at rest now use the same --ak-column-bg as column
+   headers (per Simo's request to unify the two), rather than staying
+   fully transparent — this also closes a real bug: the background-image
+   overlay rule below outranks a plain :hover rule in specificity, so
+   hovering while an image was active never actually looked "opaque" the
+   way it should have. Giving :hover its own higher-specificity rule
+   (chained with the base selector, not just a bare :hover) fixes that. */
+body[style*="--ak-board-bg-image"] .ak-toolbar .ak-filter-btn:not(.ak-filter-btn--active) {
+  background: color-mix(in srgb, var(--ak-column-bg, var(--background-secondary-alt)) calc(var(--ak-bg-overlay-opacity, 0.55) * 100%), transparent);
+}
+
 /* Priority filter buttons (All/High/Medium/Low), left-aligned */
 .ak-filter-group {
   display: flex;
@@ -66,40 +250,57 @@ body.theme-dark .ak-board-root {
 .ak-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
-/* Filter buttons */
-.ak-filter-btn {
+/* Filter buttons — ~30% larger than the original 28px, and now carrying
+   the same --ak-column-bg background at rest that the refresh button and
+   column headers use, instead of staying transparent. */
+.ak-toolbar .ak-filter-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  height: 28px;
-  border-radius: 14px;
+  gap: 5px;
+  padding: 5px 13px;
+  height: 36px;
+  border-radius: 18px;
   border: 1px solid var(--background-modifier-border);
-  background: transparent;
+  background: var(--ak-column-bg, var(--background-secondary-alt));
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 500;
+  font: 500 12px var(--ak-mono);
+  letter-spacing: .04em;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
   white-space: nowrap;
+  box-shadow: none;
 }
 
-.ak-filter-btn:hover {
-  background: var(--background-secondary);
+.ak-toolbar .ak-filter-btn:hover {
+  background: var(--ak-column-bg, var(--background-secondary));
   color: var(--text-normal);
 }
 
-.ak-filter-btn--active {
-  background: var(--interactive-accent);
-  color: #ffffff;
-  border-color: var(--interactive-accent);
+/* Same specificity as the body[style*=...] overlay rule above (both:
+   1 type selector + 4 class-level selectors) — an exact tie is resolved
+   by source order, and since this rule comes later in the file, it wins,
+   so hover reads as fully opaque even while a background image is
+   active. A same-specificity :not() vs :hover fight otherwise silently
+   loses to whichever rule happens to be declared later; pinning the
+   exact same prefix here removes the ambiguity rather than relying on
+   incidental ordering. */
+body[style*="--ak-board-bg-image"] .ak-toolbar .ak-filter-btn:hover {
+  background: var(--ak-column-bg, var(--background-secondary));
+  color: var(--text-normal);
 }
 
-.ak-filter-btn--active:hover {
-  background: var(--interactive-accent-hover, var(--interactive-accent));
+.ak-toolbar .ak-filter-btn--active {
+  background: var(--ak-accent-copper);
+  color: var(--text-on-accent, #ffffff);
+  border-color: var(--ak-accent-copper);
+}
+
+.ak-toolbar .ak-filter-btn--active:hover {
+  background: var(--ak-accent-copper);
+  opacity: 0.92;
 }
 
 .ak-btn-chevron {
@@ -123,34 +324,49 @@ body.theme-dark .ak-board-root {
 }
 
 /* New Action button */
-.ak-new-action-btn {
+.ak-toolbar .ak-new-action-btn {
   display: inline-flex;
   align-items: center;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 8px;
+  gap: 8px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 10px;
   border: none;
-  background: var(--interactive-accent);
-  color: #ffffff;
-  font-size: 13px;
+  background: var(--ak-accent-copper);
+  color: var(--text-on-accent, #ffffff);
+  font-size: 16px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
+  box-shadow: none;
 }
 
-.ak-new-action-btn:hover {
-  background: var(--interactive-accent-hover, var(--interactive-accent));
+.ak-toolbar .ak-new-action-btn:hover {
   opacity: 0.92;
 }
 
-/* Refresh button */
+/* + icon, prefixed to the New Action button label (see renderToolbar() in
+   main.js). Sized down slightly from the button's own 14px svg attrs
+   would suggest since stroke-width 2.5 at 14px already reads clearly at
+   this button height; currentColor keeps it in sync with the button's
+   text colour automatically. */
+.ak-new-action-icon {
+  flex-shrink: 0;
+}
+
+/* Refresh button — sized to match the filter buttons (36px) and now
+   sharing their same --ak-column-bg background at rest (it previously
+   had NO background until hovered, which read as invisible/missing
+   against a busy backdrop image — see the filter-button comment above
+   for the parallel fix and why --ak-column-bg specifically). */
 .ak-refresh-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--ak-column-bg, var(--background-secondary-alt));
   color: var(--text-muted);
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
@@ -158,7 +374,20 @@ body.theme-dark .ak-board-root {
 
 .ak-refresh-btn:hover {
   color: var(--text-normal);
-  background: var(--background-secondary);
+  background: var(--ak-column-bg, var(--background-secondary));
+}
+
+/* Same background-image-active override + tie-broken :hover pairing as
+   the filter buttons — without this, the refresh button's rest-state
+   background above would read as flat/undifferentiated against a photo
+   background the same way the filter buttons did before their fix. */
+body[style*="--ak-board-bg-image"] .ak-refresh-btn {
+  background: color-mix(in srgb, var(--ak-column-bg, var(--background-secondary-alt)) calc(var(--ak-bg-overlay-opacity, 0.55) * 100%), transparent);
+}
+
+body[style*="--ak-board-bg-image"] .ak-refresh-btn:hover {
+  background: var(--ak-column-bg, var(--background-secondary));
+  color: var(--text-normal);
 }
 
 /* ── Columns wrapper ─────────────────────────────────────────────────── */
@@ -200,9 +429,17 @@ body.theme-dark .ak-board-root {
   display: flex;
   flex-direction: column;
   background: var(--ak-column-bg, var(--background-secondary-alt));
-  border-radius: 8px;
+  border-radius: var(--ak-radius-lg);
   overflow: hidden;
   transition: border 0.15s;
+}
+
+/* Same overlay approach as the toolbar's filter buttons above — the
+   column's own opaque background would otherwise fully hide the image
+   behind it, including the empty space below the last card. Strength is
+   the same user-adjustable --ak-bg-overlay-opacity. */
+body[style*="--ak-board-bg-image"] .ak-column {
+  background: color-mix(in srgb, var(--ak-column-bg, var(--background-secondary-alt)) calc(var(--ak-bg-overlay-opacity, 0.55) * 100%), transparent);
 }
 
 .ak-column-drop-target {
@@ -210,18 +447,40 @@ body.theme-dark .ak-board-root {
   outline-offset: -2px;
 }
 
-/* Column header */
+/* Column header — deliberately opaque regardless of the column body's
+   overlay above (or the accent-image overlay in general): this is the
+   status label + card-count badge, and needs to stay fully readable even
+   when the column body itself is intentionally see-through. Uses the
+   same --ak-column-bg the column body would otherwise show, just without
+   the color-mix transparency step. */
 .ak-column-header {
   display: flex;
   align-items: center;
-  padding: 10px 12px 8px;
-  border-bottom: 2px solid var(--col-color, var(--background-modifier-border));
+  padding: 14px 16px;
+  background: var(--ak-column-bg, var(--background-secondary-alt));
+  border-bottom: 4px solid var(--col-color, var(--background-modifier-border));
   cursor: pointer;
   user-select: none;
 }
 
 .ak-column-header:hover {
-  background: var(--background-modifier-hover, rgba(0, 0, 0, 0.02));
+  /* Layers a semi-transparent copper tint OVER the same --ak-column-bg
+     background used at rest, rather than replacing it — keeps the
+     header's own contrast and light/dark adaptation intact while still
+     reading as an accent-colored hover. A plain color (even from
+     color-mix) is only valid as the FINAL layer in a multi-layer
+     background — every other layer must be an <image> type. The
+     standard trick for a translucent color tint on a non-final layer is
+     a linear-gradient with two identical stops, which IS a valid image
+     and can still carry its own alpha via color-mix toward transparent
+     — genuinely showing --ak-column-bg through it, tinted, rather than
+     opaquing over it. */
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--ak-accent-copper) 16%, transparent),
+      color-mix(in srgb, var(--ak-accent-copper) 16%, transparent)
+    ),
+    var(--ak-column-bg, var(--background-secondary-alt));
 }
 
 /* Disclosure triangle — click target is the whole header. Rotates when
@@ -238,6 +497,7 @@ body.theme-dark .ak-board-root {
 }
 
 .ak-column-label {
+  font-family: var(--ak-mono);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -360,22 +620,30 @@ body.theme-dark .ak-board-root {
 /* Done footer */
 .ak-done-footer {
   padding: 6px 12px 10px;
-  font-size: 11px;
+  font: 500 11px var(--ak-mono);
   color: var(--text-faint);
   text-align: center;
-  font-style: italic;
 }
 
 /* ── Priority separator ──────────────────────────────────────────────── */
 .ak-priority-sep {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font: 700 11px var(--ak-mono);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-muted);
   padding: 8px 4px 4px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 4px;
+}
+
+/* Extra legibility boost specifically while a background image is active
+   — same body[style*=...] gate and text-shadow technique already used
+   for the Bing attribution overlay, since a column's own semi-transparent
+   background (see body[style*="--ak-board-bg-image"] .ak-column above)
+   can otherwise leave these labels sitting directly over a busy photo. */
+body[style*="--ak-board-bg-image"] .ak-priority-sep {
+  color: var(--text-normal);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .ak-priority-sep:first-child {
@@ -389,10 +657,10 @@ body.theme-dark .ak-board-root {
    default before that inline override applies. */
 .ak-card {
   background: var(--ak-card-bg, var(--background-secondary));
-  border-radius: 10px;
+  border-radius: var(--ak-radius-md);
   border-left: 3px solid transparent;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  padding: 10px 10px 8px;
+  box-shadow: var(--ak-shadow-card);
+  padding: 14px 14px 12px;
   margin-bottom: 6px;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
@@ -401,8 +669,8 @@ body.theme-dark .ak-board-root {
 }
 
 .ak-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+  box-shadow: var(--ak-shadow-card-hover);
 }
 
 .ak-card:last-child {
@@ -448,9 +716,10 @@ body.theme-dark .ak-board-root {
 }
 
 .ak-card-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--link-color);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--text-normal);
   line-height: 1.4;
   word-break: break-word;
   flex: 1;
@@ -458,82 +727,169 @@ body.theme-dark .ak-board-root {
 
 .ak-card-title:hover,
 .ak-card:hover .ak-card-title {
-  color: var(--link-color-hover, var(--link-color));
+  color: var(--ak-accent-copper, var(--link-color-hover, var(--link-color)));
 }
 
-/* Card meta row (PILL_FIELDS) */
+/* Card meta row (PILL_FIELDS) — one chip per field, wrapped in a flex row.
+   Was previously a single combined pill with all fields joined by " · "
+   (Option A, CSS-only); Option B splits this into per-field chips, which
+   needed the main.js change in renderCard() to emit one span per field
+   instead of one joined text node. */
 .ak-card-meta-row {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-  line-height: 1.3;
-}
-
-/* ── Dot row ─────────────────────────────────────────────────────────── */
-/* One dot per day since status_changed (see DotAge in main.js). The four
-   tier classes below match DotAge.tierForIndex()'s four age brackets. */
-.ak-dot-row {
   display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  overflow: hidden;
-  gap: 3px;
-  margin: 4px 0 2px;
-  min-height: 7px; /* prevent layout shift when empty */
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
-.ak-dot {
-  width: var(--ak-dot-size, 7px);
-  height: var(--ak-dot-size, 7px);
-  border-radius: 50%;
-  flex-shrink: 1;
-  min-width: 3px;
+.ak-card-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  font: 500 10px var(--ak-mono);
+  letter-spacing: .02em;
+  color: var(--text-muted);
+  background: var(--background-secondary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  line-height: 1;
 }
 
-.ak-dot--t0 { background-color: #FFFFFF; } /* grace period, days 0-4 */
-.ak-dot--t1 { background-color: #FFD580; } /* days 5-13 */
-.ak-dot--t2 { background-color: #FF8C00; } /* days 14-20 */
-.ak-dot--t3 { background-color: #E24B4A; } /* days 21-28 */
+/* ── Dot-aging ring ──────────────────────────────────────────────────── */
+/* Segmented ring: a fixed number of gapped arc segments (N_DOT_SEGMENTS
+   in main.js, currently 12), each with its own individually fixed color
+   — not a live/continuous gradient. Colors are computed once per render
+   by interpolating a small fixed key-color palette across each segment's
+   relative position (index / N_DOT_SEGMENTS), so the visual design stays
+   correct even if DOT_MAX (the day-count cap) changes — the palette and
+   segment count are independent of that cap. Back to SVG rather than the
+   earlier CSS-mask approach specifically because SVG strokes get the
+   browser's native geometric anti-aliasing, which is meaningfully
+   crisper than a mask-based edge at this size (~40px) — see main.js's
+   renderDotRow() for exactly how each segment's arc/gap/rotation and
+   color are computed. */
+.ak-dot-ring-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+}
 
-/* ── Due date bar ────────────────────────────────────────────────────── */
+.ak-dot-ring {
+  width: 40px;
+  height: 40px;
+  display: block;
+}
+
+.ak-dot-ring-track-seg {
+  transition: stroke 0.2s;
+}
+
+.ak-dot-ring-seg {
+  transition: stroke 0.2s;
+}
+
+.ak-dot-ring-count {
+  font: 500 13px var(--ak-mono);
+  fill: var(--text-normal);
+}
+
+/* Day-count caption ("in status"), rendered below the ring. Only
+   rendered when the card has a statusChanged date (see renderDotRow() in
+   main.js — the wrap returns early, with no ring and no caption, when it
+   doesn't). No longer repeats the day count itself (that's inside the
+   ring) — just labels what the ring/number represent. */
+.ak-dot-ring-label {
+  font: 500 8px var(--ak-mono);
+  letter-spacing: .02em;
+  color: var(--text-faint);
+  white-space: nowrap;
+  margin-top: 3px;
+}
+
+/* ── Due date countdown rail ─────────────────────────────────────────── */
+/* Replaces the old growing-fill bar with a static track and a marker dot
+   that sweeps left (far from due) to right (due date), parking at the far
+   right once overdue rather than filling up. fillPct/fillColor/isOverdue
+   are computed the same way as before in renderDueDateBar() (main.js) —
+   only how they're consumed (marker position/color, not fill width)
+   changed. The label is now a colored chip on the same row instead of
+   plain text, using the same fillColor via --ak-due-chip-color. */
 .ak-due-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 5px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
-.ak-due-bar-wrap {
+.ak-due-rail-wrap {
   flex: 1;
-  height: 4px;
+  min-width: 0;
+  height: 9px; /* tall enough that the 9px marker isn't clipped vertically */
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.ak-due-rail-wrap::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
   border-radius: 2px;
   background: var(--background-modifier-border);
-  overflow: hidden;
 }
 
-.ak-due-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.2s;
-  /* width % and background-color are set inline from JS in
+.ak-due-marker {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px var(--ak-card-bg, var(--background-secondary));
+  transition: left 0.2s;
+  /* left% and background-color are set inline from JS in
      renderDueDateBar() (main.js) — computed per-card from days-remaining,
      not something a fixed CSS rule could express. */
 }
 
-.ak-due-bar-overdue {
+.ak-due-marker-overdue {
   animation: pulse-red 1.4s ease-in-out infinite;
 }
 
 @keyframes pulse-red {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-  50%       { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35); }
+  0%, 100% { box-shadow: 0 0 0 2px var(--ak-card-bg, var(--background-secondary)), 0 0 0 0 rgba(139, 0, 0, 0); }
+  50%       { box-shadow: 0 0 0 2px var(--ak-card-bg, var(--background-secondary)), 0 0 6px 2px rgba(139, 0, 0, 0.55); }
 }
 
-.ak-due-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  white-space: nowrap;
+.ak-due-chip {
+  display: inline-flex;
   flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  font: 500 10px var(--ak-mono);
+  letter-spacing: .02em;
+  color: var(--ak-due-chip-color);
+  background: color-mix(in srgb, var(--ak-due-chip-color) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ak-due-chip-color) 35%, transparent);
+  border-radius: 8px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+.ak-due-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ak-due-chip-overdue .ak-due-chip-dot {
+  box-shadow: 0 0 5px 1px color-mix(in srgb, var(--ak-due-chip-color) 60%, transparent);
 }
 
 /* ── Insertion line (drag-drop) ─────────────────────────────────────── */
@@ -566,29 +922,47 @@ body.theme-dark .ak-board-root {
    all three add the "ak-new-action-modal" wrapper class and reuse the
    h2/cancel-button styling here; only the "create" button (New Action's
    Create) and its own per-modal option rows differ. */
-.ak-new-action-modal h2 {
-  margin-top: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-normal);
-  margin-bottom: 12px;
+
+/* Outer dialog chrome (Obsidian's own .modal wrapper around contentEl) —
+   scoped to only fire when it actually contains an AK modal, so this
+   never affects Obsidian's own dialogs or another plugin's. */
+.modal:has(.ak-new-action-modal) {
+  border-radius: var(--ak-radius-lg);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.65);
 }
 
-.ak-new-action-input {
+.ak-modal-eyebrow {
+  font: 600 9px var(--ak-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 0 0 6px;
+}
+
+.ak-new-action-modal h2 {
+  margin-top: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 14px;
+}
+
+.ak-new-action-modal .ak-new-action-input {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 9px 12px;
+  border-radius: var(--ak-radius-sm);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
   font-size: 14px;
   outline: none;
   box-sizing: border-box;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  box-shadow: none;
 }
 
-.ak-new-action-input:focus {
-  border-color: var(--interactive-accent);
+.ak-new-action-modal .ak-new-action-input:focus {
+  border-color: var(--ak-accent-copper);
 }
 
 .ak-new-action-btn-row {
@@ -597,52 +971,70 @@ body.theme-dark .ak-board-root {
   gap: 8px;
 }
 
-.ak-new-action-create {
-  background: var(--interactive-accent);
-  color: #ffffff;
+.ak-new-action-modal .ak-new-action-create {
+  background: var(--ak-accent-copper);
+  color: var(--text-on-accent, #ffffff);
   border: none;
-  padding: 6px 16px;
-  border-radius: 6px;
+  padding: 7px 18px;
+  border-radius: 14px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
+  box-shadow: none;
 }
 
-.ak-new-action-create:hover {
-  background: var(--interactive-accent-hover, var(--interactive-accent));
+.ak-new-action-modal .ak-new-action-create:hover {
   opacity: 0.9;
 }
 
-.ak-new-action-cancel {
+.ak-new-action-modal .ak-new-action-cancel {
   background: transparent;
   color: var(--text-muted);
   border: 1px solid var(--background-modifier-border);
-  padding: 6px 16px;
-  border-radius: 6px;
+  padding: 7px 16px;
+  border-radius: 14px;
   font-size: 13px;
   cursor: pointer;
+  box-shadow: none;
 }
 
-.ak-new-action-cancel:hover {
+.ak-new-action-modal .ak-new-action-cancel:hover {
   background: var(--background-secondary);
   color: var(--text-normal);
+}
+
+/* ── Status picker modal ─────────────────────────────────────────────── */
+/* One button per status (StatusPickerModal in main.js) — reuses
+   .ak-new-action-create for each button's own look (now scoped/fixed
+   above), but this wrapper never had its own layout rule, so buttons
+   rendered as plain stacked block elements with no gap between them. */
+.ak-status-picker-btn-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ak-status-picker-cancel-row {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* ── Priority picker modal ───────────────────────────────────────────── */
 .ak-priority-picker-btn-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
-.ak-priority-picker-option {
+.ak-new-action-modal .ak-priority-picker-option {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 10px 14px;
+  border-radius: 14px;
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
@@ -651,19 +1043,20 @@ body.theme-dark .ak-board-root {
   cursor: pointer;
   text-align: left;
   transition: background 0.12s, border-color 0.12s;
+  box-shadow: none;
 }
 
-.ak-priority-picker-option:hover {
+.ak-new-action-modal .ak-priority-picker-option:hover {
   background: var(--background-modifier-hover, var(--background-secondary-alt));
-  border-color: var(--interactive-accent);
+  border-color: var(--ak-accent-copper);
 }
 
 /* Marks whichever option matches the card's priority at the time the
    picker was opened — set via PriorityPickerModal's currentPriority
    check in main.js, not a hover/focus state. */
-.ak-priority-picker-option--current {
-  border-color: var(--interactive-accent);
-  background: var(--background-secondary-alt);
+.ak-new-action-modal .ak-priority-picker-option--current {
+  border: 1.5px solid var(--ak-accent-copper);
+  background: color-mix(in srgb, var(--ak-accent-copper) 12%, var(--background-secondary));
 }
 
 .ak-priority-picker-cancel-row {
@@ -672,32 +1065,310 @@ body.theme-dark .ak-board-root {
 }
 
 /* ── Settings tab ────────────────────────────────────────────────────── */
-/* Marks the "New Status (set ID first)" row in the Columns table's status
-   checklist (see _renderColumnRows/isPlaceholder in main.js) — the
-   selector is scoped this specifically (not just .ak-settings-label--
-   placeholder alone) because a lone class rule was losing to Obsidian's
-   own default label color rule in the settings pane; this compound
-   selector reliably wins without resorting to !important. */
-.ak-settings-check-wrap label.ak-settings-label--placeholder {
+/* Status pills in the Columns table's "statuses included" cell (see
+   _renderColumnRows in main.js) — clickable colored tags replacing the
+   earlier checkbox+label list, using each status's own colour so the
+   column→status relationship reads at a glance rather than requiring
+   reading each checkbox's label text. Unchecked: outlined in the
+   status's colour, muted fill. Checked: solid fill in the status's
+   colour. --ak-status-pill-color is set inline per-pill in main.js from
+   status.color, so this rule works for any status colour without a
+   hardcoded palette. */
+/* button.ak-settings-status-pill (not just .ak-settings-status-pill) is
+   deliberate: Obsidian's core theme ships
+   `button:not(.clickable-icon) { background-color: var(--interactive-normal); ... }`
+   at specificity (0,1,1). A bare single-class selector here is only
+   (0,1,0) and silently loses that fight — which is why checked and
+   unchecked pills looked identical before this fix: the core rule was
+   overriding this background/color the whole time. Tagging with the
+   element name matches that specificity and wins on source order
+   (this file loads after core theme CSS); the --checked rule below
+   goes one step further (two classes) so it's never in doubt. */
+button.ak-settings-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: 1.5px solid var(--ak-status-pill-color, var(--background-modifier-border));
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+button.ak-settings-status-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ak-status-pill-color, var(--background-modifier-border)) 12%, transparent);
+}
+
+/* Checked pills fill solid with the status's own color. Text color comes
+   from --ak-status-pill-text, computed per-pill in main.js
+   (getReadableTextColor) against that same color, so it stays readable
+   whether the user picked a light or dark status color — replaces the
+   old hardcoded white, which was unreadable against light colors. */
+button.ak-settings-status-pill.ak-settings-status-pill--checked {
+  background: var(--ak-status-pill-color, var(--interactive-accent));
+  color: var(--ak-status-pill-text, white);
+}
+
+button.ak-settings-status-pill.ak-settings-status-pill--checked:hover:not(:disabled) {
+  background: var(--ak-status-pill-color, var(--interactive-accent));
+  color: var(--ak-status-pill-text, white);
+  opacity: 0.88;
+}
+
+button.ak-settings-status-pill--placeholder,
+button.ak-settings-status-pill:disabled {
+  border-color: var(--background-modifier-border);
+  background: transparent;
   color: var(--text-faint);
+  cursor: not-allowed;
 }
 
 /* Section headings ("Folders", "Statuses", etc.) are built with Obsidian's
    Setting().setHeading() in main.js, not raw <h3> tags — .setting-item-
-   heading is the class Obsidian itself applies for that. Styled here to
-   match the bordered/spaced look the plugin used before that migration. */
+   heading is the class Obsidian itself applies for that. Serif title
+   matches the hero/modal heading treatment (--ak-serif) used elsewhere,
+   so section titles read as deliberate typographic moments rather than
+   a bordered table divider or a small bolded label. */
 .ak-settings .setting-item.setting-item-heading {
-  margin-top: 24px;
-  margin-bottom: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-normal);
-  border-bottom: 1px solid var(--background-modifier-border);
-  padding-bottom: 6px;
+  margin-top: 32px;
+  margin-bottom: 12px;
+  padding: 0;
+  border: none;
 }
 
 .ak-settings .setting-item.setting-item-heading .setting-item-name {
   padding: 0;
+  font: 500 20px/1.2 var(--ak-serif);
+  color: var(--text-normal);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* "Accent colours" heading — sized up from the standard 20px section
+   title, since this section now also carries the reset-to-defaults
+   action and deserves more visual weight than a plain sub-section. */
+.ak-settings .setting-item.setting-item-heading.ak-settings-heading--accent .setting-item-name {
+  font-size: 26px;
+}
+
+/* ── Settings tab bar ────────────────────────────────────────────────── */
+/* Four topic groups (Structure / Behaviour / Appearance / Debugging),
+   replacing what was previously one long flat scroll — built entirely
+   with plain HTML (button row + visibility-toggled panel divs in
+   main.js's display()), since Setting/PluginSettingTab has no native
+   tab or collapsible-section API. Styled as actual navigator-style tabs:
+   a shared baseline rule under the whole row (so the row reads as
+   separated/contained, distinct from the panel content below it), each
+   tab slightly rounded only at the top corners, and the active tab
+   indicated two ways at once — a bottom border in the accent color that
+   sits flush on the baseline, plus a faint copper background tint
+   layered over the row (same linear-gradient-with-two-identical-stops
+   technique as .ak-column-header:hover above, so it reads as a subtle
+   wash rather than a flat fill) — rather than the earlier fully-rounded
+   segmented-control "pill button" look, which read as 4 separate
+   buttons with no shared baseline and no reliable way to tell which
+   one was active. */
+.ak-settings-tabbar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  border-bottom: 1.5px solid var(--background-modifier-border);
+}
+
+button.ak-settings-tab {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: var(--ak-radius-sm) var(--ak-radius-sm) 0 0;
+  padding: 11px 22px;
+  margin-bottom: -1.5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+  border-bottom: 2.5px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+button.ak-settings-tab:hover {
+  color: var(--text-normal);
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--ak-accent-copper) 8%, transparent),
+      color-mix(in srgb, var(--ak-accent-copper) 8%, transparent)
+    ),
+    transparent;
+}
+
+button.ak-settings-tab.ak-settings-tab--active {
+  color: var(--ak-accent-copper);
+  border-bottom-color: var(--ak-accent-copper);
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--ak-accent-copper) 14%, transparent),
+      color-mix(in srgb, var(--ak-accent-copper) 14%, transparent)
+    ),
+    transparent;
+}
+
+button.ak-settings-tab.ak-settings-tab--active:hover {
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--ak-accent-copper) 18%, transparent),
+      color-mix(in srgb, var(--ak-accent-copper) 18%, transparent)
+    ),
+    transparent;
+}
+
+.ak-settings-panel {
+  padding-top: 4px;
+}
+
+/* Hides inactive tab panels via class rather than a static inline
+   style.display assignment on the element (audit item 3) — same
+   visual result, but keeps display state in CSS rather than JS. */
+.ak-settings-panel--hidden {
+  display: none;
+}
+
+/* Explanatory hint text under section headings/tables throughout the
+   Settings tab (frontmatter-matching notes, the Done-toggle explanation,
+   etc.) — small and muted so it reads as supporting context rather than
+   competing with row content or headings. */
+.ak-settings-hint {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 2px 0 12px 0;
+}
+
+/* Done toggle (Statuses table) — replaces the raw browser checkbox with
+   a modern switch, deliberately distinct from the status-pill selection
+   pattern in the Columns table so the two controls aren't visually
+   confused. Standard accessible toggle markup: a real checkbox input,
+   visually hidden but still focusable/keyboard-operable, driving a
+   sibling <span> track via the :checked selector. */
+.ak-settings-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.ak-settings-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.ak-settings-toggle-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: var(--background-modifier-border);
+  transition: background 0.15s;
+}
+
+.ak-settings-toggle-track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--background-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s;
+}
+
+.ak-settings-toggle input[type="checkbox"]:checked ~ .ak-settings-toggle-track {
+  background: var(--ak-accent-copper);
+}
+
+.ak-settings-toggle input[type="checkbox"]:checked ~ .ak-settings-toggle-track::before {
+  transform: translateX(16px);
+}
+
+.ak-settings-toggle input[type="checkbox"]:focus-visible ~ .ak-settings-toggle-track {
+  outline: 2px solid var(--ak-accent-copper);
+  outline-offset: 2px;
+}
+
+/* "Add status" / "Add column" / "Add pill field" buttons — near-solid
+   copper fill pill, replacing Obsidian's default flat button look.
+   Stronger fill than the active tab's subtle wash (14%) since these are
+   deliberate primary actions, not a state indicator; still uses the
+   same copper accent for homogeneity across the redesigned Settings UI. */
+button.ak-settings-add-btn {
+  background: color-mix(in srgb, var(--ak-accent-copper) 88%, transparent);
+  color: var(--text-on-accent, #ffffff);
+  border: none;
+  border-radius: var(--ak-radius-md);
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button.ak-settings-add-btn:hover {
+  background: var(--ak-accent-copper);
+}
+
+/* ── Collapsible colour sections ─────────────────────────────────────── */
+/* Custom colours (8 rows) and Accent palette (14 rows) are the two
+   biggest sources of scroll length in the old flat layout — wrapped in
+   native <details>/<summary> (collapsed by default) rather than a plain
+   heading, since that's the actual space saved. Styled to look like a
+   natural extension of the existing .setting-item-heading treatment
+   above, not a visually foreign accordion widget. */
+.ak-settings-details {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.ak-settings-summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 6px 0;
+  list-style: none;
+  user-select: none;
+}
+
+.ak-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ak-settings-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+
+.ak-settings-details[open] .ak-settings-summary::before {
+  transform: rotate(90deg);
+}
+
+.ak-settings-summary:hover {
+  color: var(--text-normal);
 }
 
 /* Statuses/Columns/Card-meta-fields tables — each row is a CSS grid, not
@@ -706,84 +1377,164 @@ body.theme-dark .ak-board-root {
 .ak-settings-table {
   width: 100%;
   margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 /* Default grid: Label / ID / Color / Done? / Remove — used by the
    Statuses table. Columns and pill-fields tables override this below,
-   since they have a different number/shape of cells. */
+   since they have a different number/shape of cells. Card-style row:
+   its own rounded, subtly-backgrounded container rather than a dense
+   grid line separated by a thin divider — matches the card/pill visual
+   language used everywhere else in the plugin (Kanban cards, modals,
+   filter buttons) instead of a plain spreadsheet look. */
 .ak-settings-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 60px 60px 80px;
-  gap: 6px;
+  grid-template-columns: 1fr 1fr 60px 60px 92px;
+  gap: 8px;
   align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--background-secondary-alt);
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
 }
 
-/* Pill fields table has 3 cells (Label, Frontmatter key, Remove), not 5 */
+.ak-settings-row:hover {
+  border-color: var(--background-modifier-border);
+}
+
+/* Pill fields table has 3 cells (Label, Frontmatter key, Remove), not 5.
+   80px (not the old 44px) so the text-pill "Remove" button (padding
+   4px 12px around the word "Remove") fits inside its column instead of
+   overflowing past the row's rounded background on the right edge. */
 .ak-settings-row--pill {
-  grid-template-columns: 1fr 1fr 80px;
+  grid-template-columns: 1fr 1fr 92px;
 }
 
-/* Columns section has different columns */
+/* Columns table has 3 cells (Label, Statuses included, Remove); the
+   middle cell needs far more room than a single input would, since it
+   now holds a wrapped row of status pills. Uses an explicit class set in
+   main.js (_renderColumnRows) rather than :has(.ak-settings-cell--multi)
+   — :has() support in Obsidian's bundled Chromium build was unconfirmed,
+   so this is the guaranteed-safe alternative. Same 80px Remove column as
+   .ak-settings-row--pill above, for the same reason. */
+.ak-settings-row--columns {
+  grid-template-columns: 1fr 2.2fr 92px;
+}
+
+/* Header row keeps the plain/flat look (it's a label row, not data) —
+   no card background, sits directly above the first card row. */
 .ak-settings-row--header {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+}
+
+.ak-settings-row--header:hover {
+  border-color: transparent;
 }
 
 .ak-settings-cell input[type="text"] {
   width: 100%;
-  padding: 4px 6px;
-  border-radius: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
   border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  background: var(--background-primary);
   color: var(--text-normal);
   font-size: 12px;
   box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
+.ak-settings-cell input[type="text"]:focus {
+  outline: none;
+  border-color: var(--ak-accent-copper, var(--interactive-accent));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ak-accent-copper, var(--interactive-accent)) 25%, transparent);
+}
+
+/* Circular colour swatch, replacing the raw rectangular browser
+   <input type="color"> box — a status's colour is its visual identity
+   (used for the column-header underline and priority-sep-adjacent UI
+   elsewhere), so a round chip reads more like a colour "token" than a
+   generic form control. */
 .ak-settings-cell input[type="color"] {
-  width: 32px;
+  width: 28px;
   height: 28px;
-  border: none;
-  border-radius: 4px;
+  padding: 0;
+  border: 2px solid var(--background-primary);
+  border-radius: 50%;
   cursor: pointer;
   background: none;
+  box-shadow: 0 0 0 1px var(--background-modifier-border);
 }
 
-/* The Columns table's "Statuses included" cell — stacks one checkbox+label
-   per status vertically (see .ak-settings-check-wrap right below), rather
-   than the single-input-per-cell layout every other settings table uses. */
+/* The Columns table's "Statuses included" cell — a wrapped row of
+   status pills (see .ak-settings-status-pill below), rather than a
+   stacked checkbox+label list. */
 .ak-settings-cell--multi {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.ak-settings-check-wrap {
+/* The Remove-button cell (last column of every settings row) — centers
+   the button within its grid column so it can't hug or overflow past
+   the column's right edge, which is what made it look "out of alignment,
+   exiting the row background" before the column was widened above. */
+.ak-settings-row > .ak-settings-cell:last-child {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-normal);
+  justify-content: center;
 }
 
-.ak-settings-cell button {
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
+/* Text pill "Remove" button. Sized to its own text content rather than a
+   fixed box. Scoped with :not(.ak-settings-status-pill) because the
+   Columns table's status pills (see .ak-settings-status-pill above) are
+   also <button> elements inside a .ak-settings-cell (the
+   .ak-settings-cell--multi container), and would otherwise be caught by
+   this same selector and forced into this button's sizing/shape. Flat
+   fill (no border) matches the "Add" buttons' solid-pill weight; kept
+   at 20% opacity rather than solid so it reads as a lighter-weight
+   destructive action, not as prominent as the primary Add actions. Text
+   color is set per-theme below rather than a single hardcoded value,
+   since at 20% opacity the fill blends toward the panel background and
+   a fixed color wouldn't stay readable in both light and dark themes. */
+.ak-settings-cell button:not(.ak-settings-status-pill) {
+  width: auto;
+  height: auto;
+  padding: 7px 16px;
+  border-radius: var(--ak-radius-md);
+  border: none;
+  background: color-mix(in srgb, var(--ak-accent-red, #e24b4a) 20%, transparent);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
 }
 
-.ak-settings-cell button:hover {
-  background: var(--background-secondary);
-  color: var(--text-normal);
+body.theme-light .ak-settings-cell button:not(.ak-settings-status-pill) {
+  color: #1a1a1a;
+}
+
+body.theme-dark .ak-settings-cell button:not(.ak-settings-status-pill) {
+  color: #ffffff;
+}
+
+.ak-settings-cell button:not(.ak-settings-status-pill):hover {
+  background: color-mix(in srgb, var(--ak-accent-red, #e24b4a) 32%, transparent);
 }
 
 /* Shown by _validateSettings() in main.js when a status isn't assigned to
@@ -792,9 +1543,9 @@ body.theme-dark .ak-board-root {
 .ak-settings-warning {
   padding: 8px 10px;
   background: rgba(245, 158, 11, 0.1);
-  border: 1px solid #F59E0B;
+  border: 1px solid var(--text-warning, #F59E0B);
   border-radius: 6px;
-  color: #F59E0B;
+  color: var(--text-warning, #F59E0B);
   font-size: 12px;
   margin-bottom: 8px;
 }
