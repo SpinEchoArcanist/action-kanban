@@ -1,6 +1,6 @@
 /* =====================================================================
    Action Kanban — styles.css
-   Version 12.11.5 — kept in sync with main.js's AK_BUILD_VERSION on every
+   Version 12.11.8 — kept in sync with main.js's AK_BUILD_VERSION on every
    edit that touches this file, so a quick look at this header (or Ctrl+F
    in DevTools' Sources tab) confirms which build is actually loaded —
    useful since Obsidian caches styles.css separately from main.js and a
@@ -349,6 +349,11 @@ body[style*="--ak-board-bg-image"] .ak-toolbar .ak-filter-btn:hover {
 
 .ak-toolbar .ak-new-action-btn:hover {
   opacity: 0.92;
+}
+
+.ak-toolbar .ak-new-action-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* + icon, prefixed to the New Action button label (see renderToolbar() in

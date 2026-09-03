@@ -1,7 +1,7 @@
 /*
 Action Kanban — hand-maintained; edits are made directly to this file, no separate build step.
 
-Action Kanban — Version 12.11.5
+Action Kanban — Version 12.11.8
 
 ── What this file is ──────────────────────────────────────────────────────
 A single flat bundle (no build step, no modules at runtime) containing the
@@ -32,7 +32,7 @@ card between columns changes its `status`, not its `order`.
 */
 
 "use strict";
-var AK_BUILD_VERSION = "12.11.5";
+var AK_BUILD_VERSION = "12.11.8";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -79,8 +79,10 @@ var DEFAULT_SETTINGS = {
   // pill fields/due-date bar/title wrapping), with overflow scrolling
   // internally past that point. 0 or empty means unlimited (no cap, no
   // internal scroll) — see syncLaneHeights() in KanbanBoardRenderer and
-  // the .ak-lane-cell rules in styles.css.
-  maxVisibleCardsPerLane: 12,
+  // the .ak-lane-cell rules in styles.css. Default: 0 (off) — only takes
+  // effect when priorityGrouping is also on; see the settings tab, where
+  // this field is hidden entirely while priorityGrouping is off.
+  maxVisibleCardsPerLane: 0,
   debugLogging: false,
   skipNewActionNamePrompt: false,
   pillFields: [],
@@ -1934,37 +1936,68 @@ var KanbanBoardRenderer = class {
     newBtn.addEventListener("click", async e => {
       e.preventDefault();
       e.stopPropagation();
-      // Load board to find current global max order
-      let maxOrder = 0;
+      // Re-entrancy guard: the lookup below and the modal/create flow that
+      // follows both cross async gaps, so a second click landing before the
+      // first click's flow finishes would otherwise start a fully independent
+      // second flow — two modals stacked, two notes created. Disabling the
+      // button for the duration of the whole flow (re-enabled in the finally
+      // below, or on modal close) closes that gap.
+      if (newBtn.disabled) return;
+      newBtn.disabled = true;
       try {
-        const b = await this.controller.loadBoard([]);
-        for (const col of b.columns)
-          for (const grp of col.priorityGroups)
-            for (const card of grp.cards)
-              if (card.order !== null && card.order > maxOrder) maxOrder = card.order;
-      } catch {
-        // Intentionally swallowed: a failed lookup just means "start numbering
-        // from 0," which is safe — not worth surfacing to the user.
-      }
-      if (settings.skipNewActionNamePrompt) {
+        // Load board to find current global max order
+        let maxOrder = 0;
         try {
-          await this.controller.createNewAction(null, maxOrder);
-          refresh();
-        } catch (err) {
-          console.error("[ActionKanban] New Action (auto-named): failed to create note:", err);
-          new import_obsidian.Notice("Action Kanban: failed to create note — " + err.message);
+          const b = await this.controller.loadBoard([]);
+          for (const col of b.columns)
+            for (const grp of col.priorityGroups)
+              for (const card of grp.cards)
+                if (card.order !== null && card.order > maxOrder) maxOrder = card.order;
+        } catch {
+          // Intentionally swallowed: a failed lookup just means "start numbering
+          // from 0," which is safe — not worth surfacing to the user.
         }
-        return;
+        if (settings.skipNewActionNamePrompt) {
+          try {
+            await this.controller.createNewAction(null, maxOrder);
+            refresh();
+          } catch (err) {
+            console.error("[ActionKanban] New Action (auto-named): failed to create note:", err);
+            new import_obsidian.Notice("Action Kanban: failed to create note — " + err.message);
+          }
+          return;
+        }
+        await new Promise(resolveModal => {
+          let settled = false;
+          const resolveOnce = () => {
+            if (settled) return;
+            settled = true;
+            resolveModal();
+          };
+          const modal = new NewActionModal(this.app, async name => {
+            try {
+              await this.controller.createNewAction(name, maxOrder);
+              refresh();
+            } catch (err) {
+              console.error("[ActionKanban] New Action: failed to create note:", err);
+              new import_obsidian.Notice("Action Kanban: failed to create note — " + err.message);
+            }
+          });
+          const originalOnClose = modal.onClose.bind(modal);
+          modal.onClose = () => {
+            originalOnClose();
+            resolveOnce();
+          };
+          modal.open();
+          // Safety net: if onClose is ever skipped by a dismissal path this
+          // plugin doesn't wire directly (Obsidian's own X button/backdrop
+          // click), this guarantees the button re-enables within 30s instead
+          // of staying disabled for the rest of the session.
+          window.setTimeout(resolveOnce, 3e4);
+        });
+      } finally {
+        newBtn.disabled = false;
       }
-      new NewActionModal(this.app, async name => {
-        try {
-          await this.controller.createNewAction(name, maxOrder);
-          refresh();
-        } catch (err) {
-          console.error("[ActionKanban] New Action: failed to create note:", err);
-          new import_obsidian.Notice("Action Kanban: failed to create note — " + err.message);
-        }
-      }).open();
     });
 
     // Refresh icon button
@@ -2665,23 +2698,26 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
       .addToggle(t => t.setValue(this.plugin.settings.priorityGrouping).onChange(async v => {
         this.plugin.settings.priorityGrouping = v;
         await this.plugin.saveSettings();
+        this.display();
       }));
-    new import_obsidian6.Setting(behaviourEl)
-      .setName("Max visible cards per priority lane")
-      .setDesc("Caps how tall a priority lane's row can grow before that column scrolls internally, expressed as an approximate number of cards (real card height varies with pill fields, due-date bar, and title length, so this is not exact). 0 or empty means unlimited — a lane grows to fit its tallest column with no internal scrolling. Existing open boards need a manual refresh to pick up this change.")
-      .addText(t => t.setPlaceholder("12").setValue(String(this.plugin.settings.maxVisibleCardsPerLane ?? "")).onChange(async v => {
-        const trimmed = v.trim();
-        if (trimmed === "") {
-          this.plugin.settings.maxVisibleCardsPerLane = 0;
-          await this.plugin.saveSettings();
-          return;
-        }
-        const n = parseInt(trimmed, 10);
-        if (!isNaN(n) && n >= 0) {
-          this.plugin.settings.maxVisibleCardsPerLane = n;
-          await this.plugin.saveSettings();
-        }
-      }));
+    if (this.plugin.settings.priorityGrouping) {
+      new import_obsidian6.Setting(behaviourEl)
+        .setName("Max visible cards per priority lane")
+        .setDesc("Caps how tall a priority lane's row can grow before that column scrolls internally, expressed as an approximate number of cards (real card height varies with pill fields, due-date bar, and title length, so this is not exact). 0 or empty means unlimited — a lane grows to fit its tallest column with no internal scrolling. Existing open boards need a manual refresh to pick up this change.")
+        .addText(t => t.setPlaceholder("12").setValue(String(this.plugin.settings.maxVisibleCardsPerLane ?? "")).onChange(async v => {
+          const trimmed = v.trim();
+          if (trimmed === "") {
+            this.plugin.settings.maxVisibleCardsPerLane = 0;
+            await this.plugin.saveSettings();
+            return;
+          }
+          const n = parseInt(trimmed, 10);
+          if (!isNaN(n) && n >= 0) {
+            this.plugin.settings.maxVisibleCardsPerLane = n;
+            await this.plugin.saveSettings();
+          }
+        }));
+    }
     new import_obsidian6.Setting(behaviourEl)
       .setName("Skip name prompt on new action")
       .setDesc("ON: the 'New Action' button/command creates the note immediately, titled 'Untitled', with no name prompt from Action Kanban. Use this if a Templater 'Folder Template' is already configured to auto-trigger in your Actions folder and asks for the note name itself — this avoids being asked for the name twice. OFF (default): Action Kanban asks for the note name itself.")
