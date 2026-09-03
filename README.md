@@ -1,11 +1,11 @@
 # Action Kanban
 
-**Manage Action notes on a lightweight, frontmatter-driven Kanban board for Obsidian — no Dataview required.**
+**Manage Action notes on a lightweight, frontmatter-driven Kanban board for Obsidian — no Dataview or Bases required.**
 
 ![License](https://img.shields.io/github/license/SpinEchoArcanist/action-kanban)
 ![Obsidian minimum version](https://img.shields.io/badge/Obsidian-%E2%89%A51.4.0-7C3AED)
 
-Action Kanban turns a folder of notes, called Actions, into a Kanban board. You can open it as its own view or embed it directly inside another note, like a daily note. Each Action note becomes a card. Its status field decides which column it lands in, and priority groups it within that column. Drag and drop a card to change its status or reorder it within its priority group, and a self-healing order field remembers exactly how you arranged things. Everything driving the board lives in the notes' own YAML frontmatter, so there's no separate database, no manifest file, and no need for the Dataview plugin.
+Action Kanban turns a folder of notes, called Actions, into a Kanban board. You can open it as its own view or embed it directly inside another note, like a daily note. Each Action note becomes a card. Its status field decides which column it lands in, and priority groups it within that column. Drag and drop a card to change its status or reorder it within its priority group, and a self-healing order field remembers exactly how you arranged things. Everything driving the board lives in the notes' own YAML frontmatter, so there's no separate database and no need for the Dataview plugin or Obsidian's own Bases feature — Action Kanban reads and writes frontmatter directly and doesn't rely on either.
 
 ![Action Kanban — full board overview](screenshots/board-overview.png)
 
@@ -38,7 +38,7 @@ Action Kanban turns a folder of notes, called Actions, into a Kanban board. You 
 
 ## Why Action Kanban exists
 
-There are plenty of other great Kanban plugins for Obsidian, and it's worth knowing they exist — one of them might genuinely be the better fit for you. Of everything out there, Bases Kanban comes closest to what I actually need from a board, even though its underlying approach is quite different from this plugin's. What Action Kanban focuses on: the ability to embed the board directly inside a daily note, and the markers I rely on to stay on top of my actions — priority, due date, and time spent in a status, borrowed straight from Jira.
+There are plenty of other great Kanban plugins for Obsidian, and it's worth knowing they exist — one of them might genuinely be the better fit for you. Of everything out there, Bases Kanban comes closest to what I actually need from a board, even though its underlying approach is quite different from this plugin's: it's built on top of Obsidian's native Bases feature, while Action Kanban reads and writes your notes' frontmatter directly and needs neither Bases nor the Dataview plugin. What Action Kanban focuses on: the ability to embed the board directly inside a daily note, and the markers I rely on to stay on top of my actions — priority, due date, and time spent in a status, borrowed straight from Jira.
 
 The name "Action" is a deliberate choice: Obsidian already has a native notion of a task — the `- [ ]` checkbox, and the popular Tasks plugin built around it, which I also use heavily. Calling these cards "Tasks" would create naming collisions in my own vault, so "Action" is the term this plugin uses instead.
 
@@ -65,6 +65,7 @@ With this setting off (the default), the plugin makes no network requests at all
 - **Drag-and-drop status changes** between columns, with a picker prompt if a column maps to more than one status.
 - **Drag-and-drop reordering** within a priority group — your manual order is remembered even if a card moves away to another column and back.
 - **Dedicated priority picker** (click a card's chevron) — kept separate from drag-and-drop so the two gestures never conflict.
+- **Priority swim lanes** — when priority grouping is on, the same priority tier lines up at the same row height across every column, and each lane can be collapsed board-wide with a click on its separator. A lane's height can optionally be capped so it scrolls internally instead of growing without bound.
 - **Fully custom statuses and columns** — define as many statuses as you like, with your own labels and colors, and group them into columns however you want (including several statuses per column).
 - **Due-date countdown rail** — a marker sweeps toward the due date and turns color as it approaches, snapping into an overdue state once it passes.
 - **Days-in-status aging ring** — a small colored ring around each card shows how long it's sat in its current status, shifting from a cool tone toward red the longer it stays.
@@ -95,18 +96,24 @@ With this setting off (the default), the plugin makes no network requests at all
 
 ## Installation
 
-Action Kanban is not (yet) on Obsidian's official Community Plugins directory, so install it one of these two ways:
+### Option 1 — Community Plugins directory (recommended)
 
-### Option 1 — BRAT (recommended, gets automatic updates)
+1. In Obsidian, go to Settings → Community Plugins → Browse.
+2. Search for **Action Kanban**.
+3. Click **Install**, then **Enable**.
+
+Updates are offered automatically through Obsidian, the same as any other Community Plugin.
+
+### Option 2 — BRAT (for testing pre-release builds)
 
 1. Install **BRAT** ("Obsidian42 - BRAT") from Obsidian's Community Plugins browser, if you don't have it already.
 2. Open BRAT's settings and choose **Add a beta plugin for testing** (or run the equivalent command from the Command Palette).
 3. Enter the repository: `SpinEchoArcanist/action-kanban`
 4. Go to Settings → Community Plugins and enable **Action Kanban**.
 
-BRAT will check the repository's `manifest.json` for new versions and offer updates automatically.
+BRAT will check the repository's `manifest.json` for new versions and offer updates automatically — useful if you want a build ahead of what's currently on the Community Plugins directory.
 
-### Option 2 — Manual install
+### Option 3 — Manual install
 
 1. Go to the [repository](https://github.com/SpinEchoArcanist/action-kanban) and download `main.js`, `manifest.json`, and `styles.css`.
 2. In your vault, create the folder `<your-vault>/.obsidian/plugins/action-kanban/`.
@@ -165,8 +172,8 @@ To embed a board inline instead of opening it in the sidebar, place your cursor 
 | `Type`           | Field **name**: yes · Required **value**: yes               | **Yes**              | Note isn't recognized as an Action                                                                                               | Both configured under Settings → Structure → Note identification. Defaults: field `Type`, value `Action`. Accepts a plain scalar or a single-item YAML list.                                                          |
 | `status`         | Field name: **no**, always `status` · Valid **values**: yes | No                    | Defaults to your first "To Do"-style status (`1 todo` out of the box) for display only — never written to the file               | The key itself can't be renamed, but the whole set of valid values is yours to define under Settings → Structure → Statuses.                                                                                          |
 | `priority`       | Field name: **no**, always `priority` · Values: **no**      | No                    | Defaults to `medium` for display only — never written to the file                                                                | Always exactly `high`, `medium`, or `low` — neither the key nor the 3 values can be changed. See [Known limitations](#known-limitations).                                                                             |
-| `status_changed` | Field name: **no**, always `status_changed`                 | **No — auto-added**  | Written to the note automatically, with today's date, the first time the board loads it                                          | Must be a plain scalar date (`status_changed: 2026-08-19`), not a YAML list — see [Known limitations](#known-limitations).                                                                                             |
-| Due date         | Field **name**: yes                                         | No                    | No due-date rail shown — never auto-written                                                                                       | Configured under Settings → Structure → Note identification, default `Due Date`. Whatever you set, `due_date` / `Due Date` / `dueDate` are also always recognized as fallbacks. Same plain-scalar requirement as `status_changed`. |
+| `status_changed` | Field name: **no**, always `status_changed`                 | **No — auto-added**  | Written to the note automatically, with today's date, the first time the board loads it                                          | Accepts a plain scalar date (`status_changed: 2026-08-19`) or a single-item YAML list.                                                                                             |
+| Due date         | Field **name**: yes                                         | No                    | No due-date rail shown — never auto-written                                                                                       | Configured under Settings → Structure → Note identification, default `Due Date`. Whatever you set, `due_date` / `Due Date` / `dueDate` are also always recognized as fallbacks. Accepts a plain scalar or a single-item YAML list. |
 | `order`          | **No** — plugin-managed, not user-facing                    | **No — auto-added**  | Written to the note automatically, the first time the board loads it, with a value placing the card after your existing ones     | Leave it out entirely; you shouldn't need to edit it by hand.                                                                                                                                                          |
 | *(meta fields)*  | Field **name**: yes, fully your choice                      | No                    | —                                                                                                                                 | Only shown if you've added it as a "card meta field" in Settings (experimental). You choose both the frontmatter key and its display label.                                                                           |
 
@@ -221,6 +228,10 @@ Use the toolbar's **New action** button, or Command Palette → **New action not
 Click anywhere on a column's header to collapse it to a compact strip, and click again to expand it. This state is remembered across restarts — and shared by every board you have open (the standalone view and any embeds), since it's tracked per column, not per board.
 
 Turning on **Tilt collapsed columns** in Settings changes the collapsed appearance to a narrow, full-height vertical strip with a rotated title (Trello-style), instead of the default short header-only box.
+
+### Collapsing priority lanes
+
+When "Group cards by priority" is on, click a priority separator (the High/Medium/Low label between groups of cards) to collapse that lane. This collapses the same tier in every column at once, keeping the board's swim lanes aligned — and it's remembered across restarts, the same as column collapse.
 
 ### Filtering by priority
 
@@ -299,7 +310,8 @@ Optional extra frontmatter fields shown as small chips under a card's title (e.g
 | Due date warning window (days) | How many days before the due date the countdown rail starts filling toward urgent. Default `7`. |
 | Done cutoff days | Cards in a "Done" column older than this many days (by `status_changed`) are hidden, replaced with a "N older cards hidden" note. `0` disables hiding. Default `3`. |
 | Days-in-status ring size | Diameter in pixels of each card's aging ring. Default `7`, range `0–10.5`. |
-| Group cards by priority | ON: cards are grouped into High/Medium/Low sections within each column. OFF: a single flat list per column, sorted by manual order; priority is still shown on the card but doesn't affect its position. |
+| Group cards by priority | ON: cards are grouped by priority within each column, aligned as swim lanes across all columns — the same priority tier occupies the same row height everywhere on the board, even in columns where it's empty. A tier with zero cards anywhere is omitted entirely. OFF: a single flat list per column, sorted by manual order; priority is still shown on the card but doesn't affect its position. |
+| Max visible cards per priority lane | Caps how tall a priority lane can grow before that column scrolls internally, expressed as an approximate number of cards (exact height varies with meta chips, due-date bar, and title length). `0` or empty means unlimited. Default `12`. Only applies while "Group cards by priority" is on. |
 | Skip name prompt on new action | ON: "New Action" creates a note titled "Untitled" immediately, no prompt. Useful if a Templater Folder Template already asks for the name itself. OFF (default): Action Kanban asks for a title. |
 | Tilt collapsed columns | ON: collapsed columns become narrow vertical strips instead of header-only boxes. OFF (default). |
 
@@ -323,7 +335,6 @@ Optional extra frontmatter fields shown as small chips under a card's title (e.g
 ## Known limitations
 
 - **Reserves several frontmatter keys inside your Actions folder** — `Type` (or your renamed field), `status`, `priority`, `order`, `status_changed`, and your configured due-date field are all read by the plugin, and `order`/`status_changed` specifically get written automatically if missing. If any of these are already used for something unrelated on notes that fall inside your Actions folder, check for conflicts before enabling the plugin — see [A note on frontmatter keys](#a-note-on-frontmatter-keys) above.
-- **`status_changed` and the due-date field must be written as plain YAML scalars**, not lists. If either is ever written as a list, the plugin currently reads it as though the value were entirely absent, and will silently overwrite `status_changed` with today's date on the next load. `Type`, `status`, and `priority` don't have this restriction.
 - **Priority is fixed to exactly three values** — `high`, `medium`, `low`. Unlike Statuses and Columns, there's no way to rename, add, or remove priority levels.
 - **Card meta fields are experimental** — functional, but not as thoroughly tested as the rest of the plugin.
 - **Collapsed-column state is global**, keyed by column ID rather than per-board — collapsing a column in one embedded board collapses it everywhere that column appears, including the standalone view.
@@ -337,6 +348,30 @@ Action Kanban was designed, specified, and tested by [SpinEchoArcanist](https://
 If you run into a bug or have a feature request, feel free to open an issue — fixes and changes will likely go through the same human-directed, AI-implemented process.
 
 ## Version log
+
+### 12.11.4
+- Now available on Obsidian's official Community Plugins directory — see [Installation](#installation).
+- Manifest description now mentions independence from Bases as well as Dataview.
+
+### 12.11.3
+- **Fixed:** the standalone board view now debounces and scopes its auto-refresh to the Actions folder, matching how embedded boards already behaved — editing files elsewhere in your vault no longer triggers a needless reload.
+- **Fixed:** `status_changed` and the due-date field are now correctly read even if either is ever written as a single-item YAML list, matching how `Type`, `status`, and `priority` already worked. See the updated [Frontmatter reference](#frontmatter-reference) and [Known limitations](#known-limitations).
+- Minor internal styling-API cleanup; no user-visible change.
+
+### 12.11.0 – 12.11.2
+- **Priority lanes are now synchronized swim lanes** — the same priority tier (High/Medium/Low) occupies the same row height in every column, even in columns where that tier is empty, so cards for the same priority line up across the whole board. A tier with zero cards anywhere on the board is omitted entirely, in every column.
+- **Priority lanes can be collapsed**, board-wide and per-tier — click a priority separator in any column to collapse or expand that tier everywhere at once. Collapse state is remembered across restarts. A card-count badge on each separator shows how many cards are in that lane, whether it's expanded or collapsed.
+- **New setting: Max visible cards per priority lane** — caps how tall a lane can grow before it scrolls internally, instead of always stretching to fit every card. See [Settings reference](#settings-reference).
+- Readability pass: filter buttons, column headings, and priority lane titles are larger and use the interface's standard sans-serif font (previously a mix of sizes and a monospace font), matching the "New action" button's existing style.
+
+### 12.9.2
+- Settings screen is now responsive down to narrow window widths — tabs stack full-width, the Remove button in list rows becomes icon-only, and column layouts adjust automatically instead of overflowing or clipping.
+
+### 12.8.1 – 12.8.3
+- Corrective fixes from Obsidian's plugin-submission review: file scanning is now strictly scoped to your configured Actions folder (never touches file paths elsewhere in the vault), and two flagged CSS patterns (a broad `:has()` selector and redundant scrollbar properties) were replaced with equivalent, more targeted styling.
+- The daily Bing background image now shows its title, photo credit, and a direct link to that exact photo in Settings (previously only a small on-board attribution line); the "View source" link was fixed to always point at the specific fetched photo rather than a generic, potentially different search result.
+- Added a **Bing region** setting — choose which regional edition of Bing's daily image to fetch (13 options), instead of always using the US edition.
+- Fixed a display bug where switching Bing regions could show a stale cached image on the board even after the settings panel updated correctly.
 
 ### 12.8.0
 - General visual refresh across the entire board interface for a more modern look.

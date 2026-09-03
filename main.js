@@ -1,7 +1,7 @@
 /*
 Action Kanban — hand-maintained; edits are made directly to this file, no separate build step.
 
-Action Kanban — Version 12.8.0
+Action Kanban — Version 12.11.5
 
 ── What this file is ──────────────────────────────────────────────────────
 A single flat bundle (no build step, no modules at runtime) containing the
@@ -32,7 +32,7 @@ card between columns changes its `status`, not its `order`.
 */
 
 "use strict";
-var AK_BUILD_VERSION = "12.8.0";
+var AK_BUILD_VERSION = "12.11.5";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -74,6 +74,13 @@ var DEFAULT_SETTINGS = {
   doneCutoffDays: 3,
   dotSizePx: 7,
   priorityGrouping: true,
+  // Caps each priority-lane cell's visible height, expressed as an
+  // approximate number of cards (not exact — real card height varies with
+  // pill fields/due-date bar/title wrapping), with overflow scrolling
+  // internally past that point. 0 or empty means unlimited (no cap, no
+  // internal scroll) — see syncLaneHeights() in KanbanBoardRenderer and
+  // the .ak-lane-cell rules in styles.css.
+  maxVisibleCardsPerLane: 12,
   debugLogging: false,
   skipNewActionNamePrompt: false,
   pillFields: [],
@@ -93,6 +100,11 @@ var DEFAULT_SETTINGS = {
   // Persisted across restarts; shared globally across the standalone view
   // and all embeds since it's keyed by column id, not per-board.
   collapsedColumns: [],
+  // Priority tier ids ("high" | "medium" | "low") currently collapsed as
+  // swim lanes — synchronized across every column (unlike
+  // collapsedColumns, which is per-column). Persisted across restarts,
+  // shared globally across the standalone view and all embeds.
+  collapsedPriorityLanes: [],
   // When true, a collapsed column renders as a narrow vertical strip
   // (rotated title, runs the full column height) instead of the default
   // header-only view. Off by default to preserve existing behavior.
@@ -164,9 +176,37 @@ var DEFAULT_SETTINGS = {
   // .ak-board-root::after rule in styles.css. Empty when Bing mode is off
   // or no fetch has succeeded yet.
   bingBackgroundAttribution: "",
+  // Image title from Bing's API response (image.title). Shown alongside
+  // the credit in the Settings panel's Bing info block — never shown on
+  // the board overlay itself, only bingBackgroundAttribution is. Empty
+  // when Bing mode is off or no fetch has succeeded yet.
+  bingBackgroundTitle: "",
+  // Direct, dated link to the actual photo (built the same way the image
+  // bytes are fetched: https://www.bing.com + image.url), used for the
+  // Settings panel's "View source" link. Unlike bingBackgroundLink below,
+  // this always opens the exact photo, not a search that can drift to a
+  // different day. Empty when Bing mode is off or no fetch has succeeded.
+  bingBackgroundImageUrl: "",
+  // Bing search link from the API response (image.copyrightlink) — kept
+  // as a secondary "More info" link since it can surface more context
+  // than the bare photo, though the search results it returns may drift
+  // day to day rather than staying pinned to the fetched date. Empty when
+  // Bing mode is off or no fetch has succeeded yet.
+  bingBackgroundLink: "",
   // YYYY-MM-DD of the last successful Bing fetch, so refreshBingBackground()
   // only hits the network once per day rather than on every plugin load.
   bingLastFetchedDate: "",
+  // Bing market/region code (mkt query parameter) used when fetching the
+  // daily image, so the wallpaper matches a region the user chooses rather
+  // than always the US edition. Restricted to a fixed dropdown list (not
+  // free text) of markets independently reported to return distinct,
+  // localised images on this endpoint — Inference, not a documented
+  // Microsoft API contract, since HPImageArchive is undocumented; markets
+  // outside this list are accepted by Bing but silently fall back to the
+  // generic "Rest of World" edition. Defaults to "en-US", matching the
+  // value this plugin always used before this setting existed, so
+  // existing installs see no change until the user picks something else.
+  bingMarket: "en-US",
   // Opacity (0-100) of the semi-transparent overlay used on toolbar
   // buttons, the New Action button, and column bodies when a background
   // image is active — controls how much of the image shows through
@@ -380,12 +420,25 @@ var ObsidianActionRepository = class _Repo {
   // ones whose type field matches (e.g. Type: Action). Reads from Obsidian's
   // metadataCache, not raw disk content — fast, but see repairOrders() below
   // for why a couple of write paths deliberately re-read from disk instead.
+  // Walks the Actions folder via getFolderByPath()/children (recursing into
+  // subfolders) rather than vault.getMarkdownFiles(), so the plugin never
+  // enumerates file paths outside the folder the user configured.
   async getAllActions() {
     const folder    = this.getActionsFolder();
-    const prefix    = folder.endsWith("/") ? folder : folder + "/";
     const typeField = this.getActionTypeField();
     const typeValue = this.getActionTypeValue();
-    const files     = this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(prefix));
+    const root       = this.app.vault.getFolderByPath(folder);
+    const files      = [];
+    const collect    = (tFolder) => {
+      for (const child of tFolder.children) {
+        if (child instanceof import_obsidian.TFolder) {
+          collect(child);
+        } else if (child instanceof import_obsidian.TFile && child.extension === "md") {
+          files.push(child);
+        }
+      }
+    };
+    if (root instanceof import_obsidian.TFolder) collect(root);
     const actions   = [];
     for (const file of files) {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
@@ -407,12 +460,13 @@ var ObsidianActionRepository = class _Repo {
   }
 
   // Normalizes a scalar-or-single-item-list frontmatter value to a plain
-  // string. Applied to `status`/`priority` below. NOT applied to
-  // status_changed or the due-date field — those are passed straight to
-  // IsoDate.from(), which only accepts a scalar. If either is ever written
-  // as a YAML list, IsoDate.from() returns null (treated as "absent"),
-  // silently triggering a bootstrap rewrite. Known, not yet fixed —
-  // see PROJECT_HANDOFF.md §5.1.
+  // string. Applied to `status`/`priority`/`status_changed`/the due-date
+  // field below, before any of them reach IsoDate.from() or comparable
+  // scalar-only consumers — IsoDate.from() only accepts a scalar, so an
+  // unwrapped YAML list (e.g. `status_changed:\n  - 2026-05-28`) would
+  // otherwise return null (silently treated as absent). Previously applied
+  // only to status/priority; extended to status_changed/due-date per the
+  // v12.11.2 audit fix (was PROJECT_HANDOFF.md §5.1).
   static scalarString(raw) {
     if (typeof raw === "string") return raw;
     if (Array.isArray(raw) && raw.length > 0) return String(raw[0]);
@@ -423,10 +477,10 @@ var ObsidianActionRepository = class _Repo {
   _fileToAction(file, fm) {
     const status        = _Repo.scalarString(fm["status"]) ?? "1 todo";
     const priority      = Priority.from(_Repo.scalarString(fm["priority"]));
-    const statusChanged = IsoDate.from(fm["status_changed"]);
+    const statusChanged = IsoDate.from(_Repo.scalarString(fm["status_changed"]));
     const dueDateKey    = this.getDueDateField();
     const dueDateRaw    = fm[dueDateKey] ?? fm["due_date"] ?? fm["Due Date"] ?? fm["dueDate"] ?? null;
-    const dueDate       = IsoDate.from(dueDateRaw);
+    const dueDate       = IsoDate.from(_Repo.scalarString(dueDateRaw));
     const order         = parseOrder(fm["order"]);
     return new Action(file.basename, file.path, status, priority, statusChanged, dueDate, order, fm);
   }
@@ -846,7 +900,7 @@ var BoardProjection = class {
               }
             }
             return { priority: p, cards };
-          }).filter(g => isDone ? g.cards.length > 0 : true)
+          })
         : (() => {
             const cards = colActions.sort((x, y) => {
               if (x.order !== null && y.order !== null) return x.order - y.order;
@@ -860,7 +914,7 @@ var BoardProjection = class {
                 repairList.push({ path: card.path, order: globalMax + repairCounter * 10000 });
               }
             }
-            return [{ priority: null, cards }].filter(g => isDone ? g.cards.length > 0 : true);
+            return [{ priority: null, cards }];
           })();
 
       const color = statusMap.get(colDef.statusIds[0])?.color ?? "#6B7280";
@@ -874,6 +928,26 @@ var BoardProjection = class {
         hiddenCount
       };
     });
+
+    // ── Board-wide swim-lane pre-pass ──────────────────────────────────────
+    // Supersedes the old per-column "hide empty groups in Done columns only"
+    // behavior. A priority tier (or, in flat mode, the single synthetic
+    // null-priority tier) is kept only if at least one column has ≥1 card
+    // in it anywhere on the board; if so, EVERY column keeps a group for
+    // that tier (even 0-card columns), so all columns expose the same
+    // ordered tier set — needed so KanbanBoardRenderer's per-lane height
+    // sync (see syncLaneHeights) always compares the SAME tier across
+    // columns at each lane index. A tier absent everywhere is omitted from
+    // every column, not just given zero height.
+    const tiersWithCards = new Set();
+    for (const col of kanbanColumns) {
+      for (const g of col.priorityGroups) {
+        if (g.cards.length > 0) tiersWithCards.add(g.priority);
+      }
+    }
+    for (const col of kanbanColumns) {
+      col.priorityGroups = col.priorityGroups.filter(g => tiersWithCards.has(g.priority));
+    }
 
     return { board: new KanbanBoard(kanbanColumns), repairList };
   }
@@ -1580,6 +1654,7 @@ var NewActionModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("ak-new-action-modal");
+    this.modalEl.addClass("ak-new-action-modal-wrapper");
     contentEl.createEl("p", { cls: "ak-modal-eyebrow", text: "New action" });
     contentEl.createEl("h2", { text: "New action note" });
     this.inputEl = contentEl.createEl("input", {
@@ -1622,6 +1697,7 @@ var StatusPickerModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("ak-new-action-modal");
+    this.modalEl.addClass("ak-new-action-modal-wrapper");
     contentEl.createEl("p", { cls: "ak-modal-eyebrow", text: "Status" });
     contentEl.createEl("h2", { text: "Move to which status?" });
     const btnRow = contentEl.createDiv({ cls: "ak-status-picker-btn-row" });
@@ -1661,6 +1737,7 @@ var PriorityPickerModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("ak-new-action-modal");
+    this.modalEl.addClass("ak-new-action-modal-wrapper");
     contentEl.createEl("p", { cls: "ak-modal-eyebrow", text: "Priority" });
     contentEl.createEl("h2", { text: "Set priority" });
     const btnRow = contentEl.createDiv({ cls: "ak-priority-picker-btn-row" });
@@ -1764,6 +1841,12 @@ var KanbanBoardRenderer = class {
       for (const column of board.columns) {
         this.renderColumn(columnsEl, column, settings.pillFields, settings.dueDateWarningDays, settings.priorityGrouping, refresh);
       }
+      // Swim-lane height sync: runs once after every column's DOM is built,
+      // so it measures each lane's real natural height (post-layout) and
+      // stretches shorter columns' same-index lane cells to match — see
+      // syncLaneHeights() for the full explanation and the cap-clamping
+      // logic that keeps this consistent with maxVisibleCardsPerLane.
+      this.syncLaneHeights(columnsEl);
     } finally {
       this.rendering = false;
       if (this.pendingRender) {
@@ -1886,7 +1969,7 @@ var KanbanBoardRenderer = class {
 
     // Refresh icon button
     const refreshBtn = rightGroup.createDiv({ cls: "ak-refresh-btn clickable-icon" });
-    refreshBtn.setAttribute("aria-label", "Refresh Kanban board");
+    refreshBtn.setAttribute("aria-label", "Refresh kanban board");
     const svg = refreshBtn.createSvg("svg", {
       attr: {
         width: "20", height: "20", viewBox: "0 0 24 24", fill: "none",
@@ -1936,14 +2019,118 @@ var KanbanBoardRenderer = class {
       if (this.persistSettings) this.persistSettings();
     });
 
+    // ── Swim-lane cells ──────────────────────────────────────────────────
+    // Each priority group renders into its own .ak-lane-cell rather than
+    // straight into .ak-card-list, so renderBoard()'s post-render
+    // syncLaneHeights() pass has a stable, addressable element per
+    // (column, tier) pair to measure and height-match across columns.
+    // data-lane-index is the tier's position in this column's
+    // priorityGroups array — identical across every column since
+    // BoardProjection's board-wide pre-pass gives every column the same
+    // ordered tier set, so lane index N always means the same priority
+    // tier everywhere on the board.
     const cardList       = colEl.createDiv({ cls: "ak-card-list" });
     const allColumnCards = column.priorityGroups.flatMap(g => g.cards);
 
-    for (const group of column.priorityGroups) {
-      this.renderPriorityGroup(
-        cardList, group, column, allColumnCards, pillFields, dueDateWarningDays, priorityGrouping, refresh
-      );
-    }
+    // maxVisibleCardsPerLane only means anything when lanes exist — in
+    // flat mode there's a single synthetic group and no per-lane scroll
+    // boundary to speak of, so the cap is skipped entirely rather than
+    // capping the column's one and only list (which .ak-card-list's own
+    // existing outer scroll already handles).
+    const maxVisibleCards = this.getSettings().maxVisibleCardsPerLane;
+    const capActive = priorityGrouping !== false && maxVisibleCards && maxVisibleCards > 0;
+
+    // Lane collapse: keyed by priority tier id ("high"/"medium"/"low"),
+    // not by column — clicking a separator in ANY column toggles the same
+    // shared setting, so every column's same-tier lane collapses/expands
+    // together, preserving the swim-lane alignment invariant (a collapsed
+    // lane is still "the same height" — the header row — in every
+    // column). Persisted like collapsedColumns. Flat mode has no tiers to
+    // collapse (group.priority is null), so this never applies there.
+    const collapsedLanes = this.getSettings().collapsedPriorityLanes || [];
+
+    column.priorityGroups.forEach((group, laneIndex) => {
+      const laneCell = cardList.createDiv({ cls: "ak-lane-cell" });
+      laneCell.dataset.laneIndex = String(laneIndex);
+      const isLaneCollapsed = priorityGrouping !== false && collapsedLanes.includes(group.priority);
+      if (isLaneCollapsed) laneCell.addClass("ak-lane-cell--collapsed");
+
+      // Separator written directly into laneCell FIRST, so it's first in
+      // DOM order (fixed, above the cards) — cardsWrap (below it, the
+      // only scrollable/capped element) is created and appended after.
+      // Previously cardsWrap was created before this call and passed in,
+      // which put it first in DOM order ahead of the separator, rendering
+      // the title below the cards instead of above them.
+      if (priorityGrouping !== false) {
+        const sep = laneCell.createDiv({ cls: "ak-priority-sep" });
+        sep.createSpan({ cls: "ak-priority-sep-label" }).textContent =
+          group.priority.charAt(0).toUpperCase() + group.priority.slice(1);
+        sep.createSpan({ cls: "ak-priority-sep-badge" }).textContent = String(group.cards.length);
+        sep.setAttribute("role", "button");
+        sep.setAttribute("tabindex", "0");
+        sep.setAttribute("aria-label", `${isLaneCollapsed ? "Expand" : "Collapse"} ${group.priority} priority lane`);
+        const toggleLane = () => {
+          const settings = this.getSettings();
+          if (!settings.collapsedPriorityLanes) settings.collapsedPriorityLanes = [];
+          const idx = settings.collapsedPriorityLanes.indexOf(group.priority);
+          if (idx === -1) settings.collapsedPriorityLanes.push(group.priority);
+          else settings.collapsedPriorityLanes.splice(idx, 1);
+          if (this.persistSettings) this.persistSettings();
+          refresh();
+        };
+        sep.addEventListener("click", e => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleLane();
+        });
+        sep.addEventListener("keydown", e => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggleLane();
+          }
+        });
+      }
+
+      const cardsWrap = laneCell.createDiv({ cls: "ak-lane-cards" });
+      if (isLaneCollapsed) {
+        // Collapsed: cardsWrap stays empty (no cards rendered/dragged-into
+        // while collapsed) and hidden via CSS — see .ak-lane-cell--collapsed
+        // .ak-lane-cards in styles.css. The count badge above already
+        // conveys how many cards are inside without needing to render them.
+        cardsWrap.addClass("ak-lane-cards--hidden");
+      } else {
+        this.renderPriorityGroup(
+          laneCell, group, column, allColumnCards, pillFields, dueDateWarningDays, priorityGrouping, refresh, cardsWrap
+        );
+
+        if (capActive) {
+          // Measured from the first real rendered card (if any) rather than
+          // a fixed guess — exact for this column's actual content instead
+          // of an approximation that's wrong for taller/shorter card
+          // layouts (pill fields, due-date bar, title wrapping all change
+          // real card height). Falls back to a reasonable default when this
+          // specific lane has zero cards to measure (its height then
+          // doesn't matter for the cap anyway, since there's nothing to
+          // scroll — syncLaneHeights may still stretch it to match a
+          // taller sibling column's SAME lane).
+          //
+          // Floor: a max-height cap shorter than one real card is never
+          // meaningful — it would hide the only card that fits instead of
+          // showing maxVisibleCards of them. getBoundingClientRect() can
+          // return a near-zero height if this measurement ever runs while
+          // the pane is hidden/not laid out (e.g. a backgrounded standalone
+          // view); MIN_CARD_HEIGHT_PX guards against that collapsing the
+          // cap, independent of what triggered the measurement.
+          const MIN_CARD_HEIGHT_PX = 62;
+          const firstCard = cardsWrap.querySelector(".ak-card");
+          const measuredHeightPx = firstCard
+            ? firstCard.getBoundingClientRect().height + 6   // + .ak-card's own margin-bottom (see styles.css)
+            : MIN_CARD_HEIGHT_PX;
+          const cardHeightPx = Math.max(measuredHeightPx, MIN_CARD_HEIGHT_PX);
+          cardsWrap.setCssProps({ "max-height": `${maxVisibleCards * cardHeightPx}px`, "overflow-y": "auto" });
+        }
+      }
+    });
 
     if (column.hiddenCount > 0) {
       colEl.createDiv({ cls: "ak-done-footer" }).textContent =
@@ -1974,19 +2161,75 @@ var KanbanBoardRenderer = class {
     });
   }
 
+  // Swim-lane height sync: measures every column's lane cells
+  // after they're all in the DOM, then stretches each lane index's
+  // shorter cells to match the tallest one at that index — the same
+  // priority tier ends up the same visual row height in every column,
+  // even where it has zero cards. Called once per renderBoard() after the
+  // column-render loop, so it always measures real post-layout content
+  // height, not an estimate.
+  //
+  // Each .ak-lane-cell's own scrollHeight already reflects the correct
+  // "as seen" height: the separator (fixed, never scrolls) plus its
+  // .ak-lane-cards child's height — which is itself already clamped by
+  // the maxVisibleCardsPerLane cap's max-height/overflow, when active
+  // (see renderColumn). So no separate cap lookup is needed here; reading
+  // laneCell.scrollHeight directly is sufficient and correctly capped by
+  // construction, with no risk of a min-height/max-height conflict.
+  syncLaneHeights(columnsEl) {
+    const columnEls = Array.from(columnsEl.querySelectorAll(":scope > .ak-column"));
+    if (columnEls.length === 0) return;
+
+    // Reset any previously-applied sync (needed defensively — in practice
+    // renderBoard() already rebuilds the whole subtree via container.empty()
+    // on every call, so there's no real stale-height carryover today, but
+    // resetting here keeps this method correct even if that ever changes).
+    for (const colEl of columnEls) {
+      for (const cell of colEl.querySelectorAll(".ak-lane-cell")) {
+        cell.setCssProps({ "min-height": "" });
+      }
+    }
+
+    // Group lane cells by laneIndex across all columns.
+    const byLaneIndex = new Map();
+    for (const colEl of columnEls) {
+      for (const cell of colEl.querySelectorAll(".ak-lane-cell")) {
+        const idx = Number(cell.dataset.laneIndex);
+        if (!byLaneIndex.has(idx)) byLaneIndex.set(idx, []);
+        byLaneIndex.get(idx).push(cell);
+      }
+    }
+
+    for (const cells of byLaneIndex.values()) {
+      let target = 0;
+      for (const cell of cells) {
+        if (cell.scrollHeight > target) target = cell.scrollHeight;
+      }
+      for (const cell of cells) {
+        cell.setCssProps({ "min-height": `${target}px` });
+      }
+    }
+  }
+
   // Renders one priority group's cards (or, in flat mode, the column's
   // whole card list as a single group with group.priority === null — see
   // BoardProjection). Wires up all three per-card interactions: open note,
   // drag-and-drop, and the priority-chevron click.
-  renderPriorityGroup(container, group, column, allColumnCards, pillFields, dueDateWarningDays, priorityGrouping, refresh) {
-    if (priorityGrouping !== false) {
-      const sep = container.createDiv({ cls: "ak-priority-sep" });
-      sep.textContent = group.priority.charAt(0).toUpperCase() + group.priority.slice(1);
-    } // end if (priorityGrouping !== false)
+  // container receives the priority separator directly (so it can sit
+  // outside a scrollable area — see renderColumn's cardsWrap). cardsWrap
+  // receives the actual cards; defaults to container itself for any other
+  // caller that doesn't need the two split apart.
+  // Renders a priority group's cards into cardsWrap (or container itself
+  // if cardsWrap isn't passed). The priority separator is created by the
+  // caller BEFORE this runs, not here — see renderColumn — so DOM order
+  // is guaranteed separator-then-cards regardless of call order within
+  // this function.
+  renderPriorityGroup(container, group, column, allColumnCards, pillFields, dueDateWarningDays, priorityGrouping, refresh, cardsWrap) {
+    const cardsTarget = cardsWrap || container;
 
     // ── Non-empty group: render cards ──────────────────────────────────────
     for (const action of group.cards) {
-      renderCard(container, action, column.id, column.color, pillFields, {
+      renderCard(cardsTarget, action, column.id, column.color, pillFields, {
         onClick:      async a  => { await this.controller.openNote(a.name); },
         onDragStart:  (e, a)   => { this.dndHandler.startDrag(e, a, column.id); },
         onDragEnd:    ()       => { this.dndHandler.endDrag(); },
@@ -2099,16 +2342,70 @@ var VIEW_TYPE_KANBAN = "action-kanban";
 var KanbanView = class extends import_obsidian4.ItemView {
   constructor(leaf, controller, getSettings, saveSettings) {
     super(leaf);
+    this.getSettings = getSettings;
     this.renderer = new KanbanBoardRenderer(
       this.app, controller, getSettings, () => this.refresh(), saveSettings
     );
+    this._debounceTimer = null;
+    // Tracks whether this leaf is the currently active one, and whether a
+    // debounced refresh fired while it wasn't — see onOpen() below for the
+    // full explanation of why a refresh that lands on a backgrounded pane
+    // needs a follow-up once the pane becomes visible again.
+    this._isActiveLeaf   = false;
+    this._missedRefresh  = false;
   }
   getViewType()    { return VIEW_TYPE_KANBAN; }
   getDisplayText() { return "Action Kanban"; }
   getIcon()        { return "layout-dashboard"; }
   async onOpen() {
     await this.refresh();
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.refresh()));
+    // onOpen() only runs once this leaf is being shown, so it's safe to
+    // initialize as active here directly — no need to query workspace
+    // state (Workspace.activeLeaf is deprecated; active-leaf-change below
+    // is what keeps this flag correct from this point on).
+    this._isActiveLeaf = true;
+    // Debounced + scoped to the Actions folder, mirroring the embedded
+    // code-block processor's pattern (see registerMarkdownCodeBlockProcessor
+    // below) so a burst of near-simultaneous changes collapses into a single
+    // re-render and unrelated vault activity doesn't trigger any refresh.
+    const scheduleRefresh = () => {
+      if (this._debounceTimer) window.clearTimeout(this._debounceTimer);
+      this._debounceTimer = window.setTimeout(() => {
+        this._debounceTimer = null;
+        dbg("[ActionKanban] standalone view: debounced refresh firing");
+        this.refresh();
+        // A refresh that runs while this pane isn't the active leaf may
+        // measure card heights against a hidden/unlaid-out DOM (see
+        // renderColumn()'s getBoundingClientRect() comment), producing a
+        // wrong max-height cap. Flag it so the active-leaf-change handler
+        // below can re-measure once the pane is actually visible again,
+        // instead of leaving a stale/wrong cap until the user manually
+        // triggers another refresh.
+        if (!this._isActiveLeaf) this._missedRefresh = true;
+      }, 1e3);
+    };
+    this.registerEvent(this.app.metadataCache.on("changed", file => {
+      if (!(file instanceof import_obsidian4.TFile)) return;
+      const folder = this.getSettings().actionsFolder;
+      const prefix = folder.endsWith("/") ? folder : folder + "/";
+      if (!file.path.startsWith(prefix)) return;
+      dbg("[ActionKanban] standalone view: relevant change for", file.path, "— scheduling refresh");
+      scheduleRefresh();
+    }));
+    // Catches up a refresh that landed while this pane was backgrounded.
+    // Fires on every leaf switch in the whole workspace (cheap: a leaf
+    // identity check + a boolean read), and only re-renders when this pane
+    // just became active again AND a refresh was actually missed while it
+    // was hidden — an ordinary tab switch with nothing pending is a no-op.
+    this.registerEvent(this.app.workspace.on("active-leaf-change", leaf => {
+      this._isActiveLeaf = leaf === this.leaf;
+      if (this._isActiveLeaf && this._missedRefresh) {
+        this._missedRefresh = false;
+        dbg("[ActionKanban] standalone view: became active with a missed refresh pending — re-rendering");
+        this.refresh();
+      }
+    }));
+    this.register(() => { if (this._debounceTimer) window.clearTimeout(this._debounceTimer); });
   }
   async refresh() { await this.renderer.render(this.contentEl); }
 };
@@ -2292,7 +2589,7 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
     this._renderStatusRows(statusTable, validationEl);
     structureEl.createEl("p", {
       cls: "ak-settings-hint",
-      text: "\"Done\" marks a status as a completion state. Any column containing at least one Done status becomes a Done column: its cards are hidden once older than \"Done cutoff days\" (below) since their last status change, and empty priority groups in it are collapsed rather than shown."
+      text: "\"Done\" marks a status as a completion state. Any column containing at least one Done status becomes a Done column: its cards are hidden once older than \"Done cutoff days\" (below) since their last status change. (Priority tiers with zero cards anywhere on the board are omitted from every column, Done or not — see \"Priority grouping\" below.)"
     });
     new import_obsidian6.Setting(structureEl).addButton(btn =>
       btn.setButtonText("Add status").setClass("ak-settings-add-btn").onClick(async () => {
@@ -2364,10 +2661,26 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
       }));
     new import_obsidian6.Setting(behaviourEl)
       .setName("Group cards by priority")
-      .setDesc("ON: cards are grouped by priority within each column with High/Medium/Low separators. OFF: all cards in a column are shown in a single flat list sorted by order; priority is still shown on each card but does not affect position. Existing open boards need a manual refresh to pick up this change.")
+      .setDesc("ON: cards are grouped by priority within each column with High/Medium/Low separators, aligned as swim lanes across all columns — the same priority tier occupies the same row height everywhere on the board, even in columns where it's empty. A priority tier with zero cards anywhere on the board is omitted entirely. OFF: all cards in a column are shown in a single flat list sorted by order; priority is still shown on each card but does not affect position. Existing open boards need a manual refresh to pick up this change.")
       .addToggle(t => t.setValue(this.plugin.settings.priorityGrouping).onChange(async v => {
         this.plugin.settings.priorityGrouping = v;
         await this.plugin.saveSettings();
+      }));
+    new import_obsidian6.Setting(behaviourEl)
+      .setName("Max visible cards per priority lane")
+      .setDesc("Caps how tall a priority lane's row can grow before that column scrolls internally, expressed as an approximate number of cards (real card height varies with pill fields, due-date bar, and title length, so this is not exact). 0 or empty means unlimited — a lane grows to fit its tallest column with no internal scrolling. Existing open boards need a manual refresh to pick up this change.")
+      .addText(t => t.setPlaceholder("12").setValue(String(this.plugin.settings.maxVisibleCardsPerLane ?? "")).onChange(async v => {
+        const trimmed = v.trim();
+        if (trimmed === "") {
+          this.plugin.settings.maxVisibleCardsPerLane = 0;
+          await this.plugin.saveSettings();
+          return;
+        }
+        const n = parseInt(trimmed, 10);
+        if (!isNaN(n) && n >= 0) {
+          this.plugin.settings.maxVisibleCardsPerLane = n;
+          await this.plugin.saveSettings();
+        }
       }));
     new import_obsidian6.Setting(behaviourEl)
       .setName("Skip name prompt on new action")
@@ -2506,6 +2819,9 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
           this.plugin.settings.bingBackgroundEnabled = v;
           if (!v) {
             this.plugin.settings.bingBackgroundAttribution = "";
+            this.plugin.settings.bingBackgroundTitle = "";
+            this.plugin.settings.bingBackgroundImageUrl = "";
+            this.plugin.settings.bingBackgroundLink = "";
           }
           await this.plugin.saveSettings();
           if (v) {
@@ -2522,6 +2838,78 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
           }
           this.display();
         }));
+      // Region used for the Bing fetch — fixed dropdown, not free text, of
+      // markets independently reported to return distinct localised images
+      // on this undocumented endpoint (Inference, not a guaranteed Bing
+      // contract; other codes are accepted but silently fall back to the
+      // generic "Rest of World" edition). Changing it clears
+      // bingLastFetchedDate so the new region takes effect immediately
+      // rather than waiting until tomorrow, same pattern the toggle above
+      // already uses on enable.
+      new import_obsidian6.Setting(appearanceEl)
+        .setName("Bing region")
+        .setDesc("Which regional edition of Bing's daily image to fetch. Only shown while auto-update from Bing is on.")
+        .addDropdown(d => d
+          .addOption("en-US", "United States (English)")
+          .addOption("en-GB", "United Kingdom (English)")
+          .addOption("en-CA", "Canada (English)")
+          .addOption("en-AU", "Australia (English)")
+          .addOption("en-IN", "India (English)")
+          .addOption("fr-FR", "France (Français)")
+          .addOption("fr-CA", "Canada (Français)")
+          .addOption("de-DE", "Germany (Deutsch)")
+          .addOption("es-ES", "Spain (Español)")
+          .addOption("it-IT", "Italy (Italiano)")
+          .addOption("ja-JP", "Japan (日本語)")
+          .addOption("zh-CN", "China (中文)")
+          .addOption("pt-BR", "Brazil (Português)")
+          .setValue(this.plugin.settings.bingMarket)
+          .onChange(async v => {
+            this.plugin.settings.bingMarket = v;
+            this.plugin.settings.bingLastFetchedDate = "";
+            await this.plugin.saveSettings();
+            if (this.plugin.settings.bingBackgroundEnabled) {
+              await this.plugin.refreshBingBackground();
+            }
+            this.display();
+          }));
+      // Info block surfacing what was actually fetched from Bing — added
+      // because the only prior feedback was a small, hard-to-read overlay
+      // in the board's bottom-right corner. Shown only once Bing mode is
+      // on AND a fetch has actually succeeded (bingBackgroundAttribution
+      // non-empty), so it never displays a confusing empty block before
+      // the first fetch completes or while Bing mode is off. Built via
+      // descEl.createDiv()/.createEl() directly (same DOM-helper pattern
+      // used throughout this file) rather than createFragment(), which
+      // isn't used anywhere else in the codebase.
+      if (this.plugin.settings.bingBackgroundEnabled && this.plugin.settings.bingBackgroundAttribution) {
+        const bingInfo = new import_obsidian6.Setting(appearanceEl)
+          .setName("Today's Bing image");
+        if (this.plugin.settings.bingBackgroundTitle) {
+          bingInfo.descEl.createDiv({ text: this.plugin.settings.bingBackgroundTitle });
+        }
+        bingInfo.descEl.createDiv({ text: this.plugin.settings.bingBackgroundAttribution });
+        if (this.plugin.settings.bingBackgroundImageUrl) {
+          bingInfo.descEl.createEl("a", {
+            text: "View source",
+            href: this.plugin.settings.bingBackgroundImageUrl,
+            attr: { target: "_blank", rel: "noopener" }
+          });
+        }
+        if (this.plugin.settings.bingBackgroundLink) {
+          bingInfo.descEl.createEl("div").createEl("a", {
+            text: "More info",
+            href: this.plugin.settings.bingBackgroundLink,
+            attr: { target: "_blank", rel: "noopener" }
+          });
+        }
+        if (this.plugin.settings.bingLastFetchedDate) {
+          bingInfo.descEl.createDiv({
+            text: `Last fetched: ${this.plugin.settings.bingLastFetchedDate}`,
+            cls: "setting-item-description"
+          });
+        }
+      }
       new import_obsidian6.Setting(appearanceEl)
         .setName("Overlay contrast")
         .setDesc("How solid toolbar buttons and column backgrounds are over the image — higher keeps them more readable, lower shows more of the image through them.")
@@ -2565,13 +2953,17 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
     this.plugin.settings.statuses.forEach((status, idx) => {
       const row = container.createDiv({ cls: "ak-settings-row" });
 
-      const labelInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "text", value: status.label });
+      const labelCell = row.createDiv({ cls: "ak-settings-cell" });
+      labelCell.setAttribute("data-field", "Label");
+      const labelInput = labelCell.createEl("input", { type: "text", value: status.label });
       labelInput.addEventListener("change", async () => {
         this.plugin.settings.statuses[idx].label = labelInput.value.trim();
         await this.plugin.saveSettings(); this.display();
       });
 
-      const idInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "text", value: status.id });
+      const idCell = row.createDiv({ cls: "ak-settings-cell" });
+      idCell.setAttribute("data-field", "ID (matches frontmatter)");
+      const idInput = idCell.createEl("input", { type: "text", value: status.id });
       idInput.addEventListener("change", async () => {
         const oldId = this.plugin.settings.statuses[idx].id;
         const newId = idInput.value.trim();
@@ -2585,13 +2977,16 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
         await this.plugin.saveSettings(); this.display();
       });
 
-      const colorInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "color", value: status.color });
+      const colorCell = row.createDiv({ cls: "ak-settings-cell" });
+      colorCell.setAttribute("data-field", "Color");
+      const colorInput = colorCell.createEl("input", { type: "color", value: status.color });
       colorInput.addEventListener("change", async () => {
         this.plugin.settings.statuses[idx].color = colorInput.value;
         await this.plugin.saveSettings(); this.display();
       });
 
       const doneCell = row.createDiv({ cls: "ak-settings-cell" });
+      doneCell.setAttribute("data-field", "Done?");
       const doneToggle = doneCell.createEl("label", { cls: "ak-settings-toggle" });
       const doneInput = doneToggle.createEl("input", { type: "checkbox" });
       doneInput.checked = status.isDone;
@@ -2601,7 +2996,11 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
         await this.plugin.saveSettings(); this.display();
       });
 
-      const removeBtn = row.createDiv({ cls: "ak-settings-cell" }).createEl("button", { text: "Remove" });
+      const removeCell = row.createDiv({ cls: "ak-settings-cell" });
+      const removeBtn = removeCell.createEl("button", { cls: "ak-settings-remove-btn" });
+      removeBtn.setAttribute("aria-label", "Remove");
+      removeBtn.setAttribute("title", "Remove this status");
+      import_obsidian6.setIcon(removeBtn, "trash-2");
       removeBtn.addEventListener("click", async () => {
         this.plugin.settings.statuses.splice(idx, 1);
         await this.plugin.saveSettings(); this.display();
@@ -2622,19 +3021,27 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
     this.plugin.settings.pillFields.forEach((field, idx) => {
       const row = container.createDiv({ cls: "ak-settings-row ak-settings-row--pill" });
 
-      const labelInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "text", value: field.label });
+      const labelCell = row.createDiv({ cls: "ak-settings-cell" });
+      labelCell.setAttribute("data-field", "Label");
+      const labelInput = labelCell.createEl("input", { type: "text", value: field.label });
       labelInput.addEventListener("change", async () => {
         this.plugin.settings.pillFields[idx].label = labelInput.value.trim();
         await this.plugin.saveSettings();
       });
 
-      const keyInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "text", value: field.frontmatterKey });
+      const keyCell = row.createDiv({ cls: "ak-settings-cell" });
+      keyCell.setAttribute("data-field", "Frontmatter key");
+      const keyInput = keyCell.createEl("input", { type: "text", value: field.frontmatterKey });
       keyInput.addEventListener("change", async () => {
         this.plugin.settings.pillFields[idx].frontmatterKey = keyInput.value.trim();
         await this.plugin.saveSettings();
       });
 
-      const removeBtn = row.createDiv({ cls: "ak-settings-cell" }).createEl("button", { text: "Remove" });
+      const removeCell = row.createDiv({ cls: "ak-settings-cell" });
+      const removeBtn = removeCell.createEl("button", { cls: "ak-settings-remove-btn" });
+      removeBtn.setAttribute("aria-label", "Remove");
+      removeBtn.setAttribute("title", "Remove this field");
+      import_obsidian6.setIcon(removeBtn, "trash-2");
       removeBtn.addEventListener("click", async () => {
         this.plugin.settings.pillFields.splice(idx, 1);
         await this.plugin.saveSettings(); this.display();
@@ -2652,13 +3059,16 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
     this.plugin.settings.columns.forEach((col, idx) => {
       const row = container.createDiv({ cls: "ak-settings-row ak-settings-row--columns" });
 
-      const labelInput = row.createDiv({ cls: "ak-settings-cell" }).createEl("input", { type: "text", value: col.label });
+      const labelCell = row.createDiv({ cls: "ak-settings-cell" });
+      labelCell.setAttribute("data-field", "Label");
+      const labelInput = labelCell.createEl("input", { type: "text", value: col.label });
       labelInput.addEventListener("change", async () => {
         this.plugin.settings.columns[idx].label = labelInput.value.trim();
         await this.plugin.saveSettings();
       });
 
       const statusCell = row.createDiv({ cls: "ak-settings-cell ak-settings-cell--multi" });
+      statusCell.setAttribute("data-field", "Statuses included");
       for (const status of this.plugin.settings.statuses) {
         const isPlaceholder = status.id === "new-status";
         const isChecked     = col.statusIds.includes(status.id);
@@ -2688,7 +3098,11 @@ var ActionKanbanSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       }
 
-      const removeBtn = row.createDiv({ cls: "ak-settings-cell" }).createEl("button", { text: "Remove" });
+      const removeCell = row.createDiv({ cls: "ak-settings-cell" });
+      const removeBtn = removeCell.createEl("button", { cls: "ak-settings-remove-btn" });
+      removeBtn.setAttribute("aria-label", "Remove");
+      removeBtn.setAttribute("title", "Remove this column");
+      import_obsidian6.setIcon(removeBtn, "trash-2");
       removeBtn.addEventListener("click", async () => {
         this.plugin.settings.columns.splice(idx, 1);
         await this.plugin.saveSettings(); this.display();
@@ -2904,6 +3318,7 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
     if (!this.settings.columns)            this.settings.columns            = DEFAULT_SETTINGS.columns;
     if (!this.settings.pillFields)         this.settings.pillFields         = DEFAULT_SETTINGS.pillFields;
     if (!this.settings.collapsedColumns)   this.settings.collapsedColumns   = DEFAULT_SETTINGS.collapsedColumns;
+    if (!this.settings.collapsedPriorityLanes) this.settings.collapsedPriorityLanes = DEFAULT_SETTINGS.collapsedPriorityLanes;
     if (this.settings.tiltCollapsedColumns === undefined)
       this.settings.tiltCollapsedColumns = DEFAULT_SETTINGS.tiltCollapsedColumns;
     if (!this.settings.actionTypeField)    this.settings.actionTypeField    = DEFAULT_SETTINGS.actionTypeField;
@@ -2954,8 +3369,16 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
       this.settings.bingBackgroundPath = DEFAULT_SETTINGS.bingBackgroundPath;
     if (this.settings.bingBackgroundAttribution === undefined)
       this.settings.bingBackgroundAttribution = DEFAULT_SETTINGS.bingBackgroundAttribution;
+    if (this.settings.bingBackgroundTitle === undefined)
+      this.settings.bingBackgroundTitle = DEFAULT_SETTINGS.bingBackgroundTitle;
+    if (this.settings.bingBackgroundImageUrl === undefined)
+      this.settings.bingBackgroundImageUrl = DEFAULT_SETTINGS.bingBackgroundImageUrl;
+    if (this.settings.bingBackgroundLink === undefined)
+      this.settings.bingBackgroundLink = DEFAULT_SETTINGS.bingBackgroundLink;
     if (this.settings.bingLastFetchedDate === undefined)
       this.settings.bingLastFetchedDate = DEFAULT_SETTINGS.bingLastFetchedDate;
+    if (this.settings.bingMarket === undefined)
+      this.settings.bingMarket = DEFAULT_SETTINGS.bingMarket;
     // One-time repair for vaults that ran the earlier buggy version,
     // where Bing wrote directly to backgroundImagePath instead of its
     // own separate path: if Bing is enabled but has no recorded
@@ -3065,7 +3488,25 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
       ? s.bingBackgroundPath
       : s.backgroundImagePath;
     if (s.backgroundImageEnabled && activePath) {
-      try { url = this.app.vault.adapter.getResourcePath(activePath); }
+      try {
+        url = this.app.vault.adapter.getResourcePath(activePath);
+        // getResourcePath() returns a fixed app:// URL derived only from
+        // the path string — with Bing always writing to the same fixed
+        // filename (bingBackgroundPath), a region switch or daily refresh
+        // changes the file's bytes without changing that URL, so the
+        // browser's resource cache can keep showing the previous image.
+        // Appending _bingFetchMarker (set fresh in refreshBingBackground()
+        // on every successful fetch, in-memory only) as a cache-busting
+        // query param — only while Bing owns the active path — forces a
+        // fresh load whenever a fetch actually completes, including
+        // multiple fetches within the same day (e.g. switching region
+        // twice), while still caching normally between fetches. Not
+        // applied to the manual backgroundImagePath case, since that
+        // file is never silently rewritten by the plugin.
+        if (s.bingBackgroundEnabled && s.bingBackgroundPath && this._bingFetchMarker) {
+          url += (url.includes("?") ? "&" : "?") + "ak-bing=" + encodeURIComponent(this._bingFetchMarker);
+        }
+      }
       catch (err) { console.warn("[ActionKanban] Could not resolve background image path:", err); }
     }
     if (url) target.style.setProperty("--ak-board-bg-image", `url("${url}")`);
@@ -3132,8 +3573,9 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
     const bingPath       = folder0 ? `${folder0}/${BING_FILENAME}` : BING_FILENAME;
 
     try {
+      const market = s.bingMarket || "en-US";
       const metaRes = await import_obsidian5.requestUrl({
-        url: "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US"
+        url: `https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=${market}`
       });
       const meta  = metaRes.json;
       const image = meta && meta.images && meta.images[0];
@@ -3141,8 +3583,9 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
         console.warn("[ActionKanban] Bing background: unexpected API response, skipping");
         return;
       }
+      const fullImageUrl = `https://www.bing.com${image.url}`;
       const imageRes = await import_obsidian5.requestUrl({
-        url: `https://www.bing.com${image.url}`
+        url: fullImageUrl
       });
       const bytes = imageRes.arrayBuffer;
 
@@ -3157,7 +3600,15 @@ var ActionKanbanPlugin = class extends import_obsidian5.Plugin {
       s.bingBackgroundPath         = bingPath;
       s.backgroundImageEnabled     = true;
       s.bingBackgroundAttribution  = image.copyright || "";
+      s.bingBackgroundTitle        = image.title || "";
+      s.bingBackgroundImageUrl     = fullImageUrl;
+      s.bingBackgroundLink         = image.copyrightlink || "";
       s.bingLastFetchedDate        = today;
+      // In-memory only (not part of settings/saveSettings) — see
+      // applyBackgroundImage()'s cache-busting comment. Only needs to be
+      // unique per fetch within the current session; a plugin reload
+      // naturally re-resolves the image fresh regardless.
+      this._bingFetchMarker        = String(Date.now());
       await this.saveSettings();
       this.applyBackgroundImage();
       dbg("[AK-BING] background refreshed:", bingPath);

@@ -1,6 +1,6 @@
 /* =====================================================================
    Action Kanban — styles.css
-   Version 12.8.0 — kept in sync with main.js's AK_BUILD_VERSION on every
+   Version 12.11.5 — kept in sync with main.js's AK_BUILD_VERSION on every
    edit that touches this file, so a quick look at this header (or Ctrl+F
    in DevTools' Sources tab) confirms which build is actually loaded —
    useful since Obsidian caches styles.css separately from main.js and a
@@ -261,13 +261,19 @@ body[style*="--ak-board-bg-image"] .ak-toolbar .ak-filter-btn:not(.ak-filter-btn
   align-items: center;
   gap: 5px;
   padding: 5px 13px;
-  height: 36px;
-  border-radius: 18px;
+  height: 40px;
+  border-radius: 20px;
   border: 1px solid var(--background-modifier-border);
   background: var(--ak-column-bg, var(--background-secondary-alt));
   color: var(--text-muted);
-  font: 500 12px var(--ak-mono);
-  letter-spacing: .04em;
+  /* Interface sans-serif, matching the "New Action" button — unified UI
+     chrome font (12.11.2). Was DM Mono, which read as a third, different
+     typeface next to New Action's unstyled (interface-inherited) font and
+     the column/priority labels' own DM Mono. */
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: normal;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
   white-space: nowrap;
@@ -407,8 +413,6 @@ body[style*="--ak-board-bg-image"] .ak-refresh-btn:hover {
                               existing dragover/drop listeners are already
                               bound to the full .ak-column element, so no
                               JS changes were needed for this. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--interactive-accent) transparent;
 }
 
 .ak-columns::-webkit-scrollbar {
@@ -497,10 +501,12 @@ body[style*="--ak-board-bg-image"] .ak-column {
 }
 
 .ak-column-label {
-  font-family: var(--ak-mono);
-  font-size: 11px;
+  /* Interface sans-serif, matching the "New Action" button — see
+     .ak-toolbar .ak-filter-btn for the full rationale (12.11.2). */
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
   color: var(--h3-color, var(--text-accent, var(--text-normal)));
 }
@@ -509,16 +515,21 @@ body[style*="--ak-board-bg-image"] .ak-column {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
   margin-left: auto;   /* pushes badge to the right now that the header
                            uses flex-start instead of space-between, to
                            make room for the collapse icon before the label */
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--background-modifier-border);
   color: var(--text-muted);
-  font-size: 11px;
+  /* Interface sans-serif, not --ak-mono — digits render denser and
+     rounder in a UI font than in a monospace one, which matters for a
+     bare number someone needs to read at a glance. DM Mono is kept only
+     for text labels (column/priority titles), not counts. */
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -595,7 +606,13 @@ body[style*="--ak-board-bg-image"] .ak-column {
   flex-shrink: 0;
 }
 
-/* Card list — scrollable */
+/* Card list. No longer independently scrollable (12.10.1) — grows to its
+   full content height in every mode; the page/embed scrolls as a whole
+   instead. Was: overflow-y: auto; max-height: calc(100vh - 180px), which
+   made sense pre-swim-lanes but reads as N independent scroll boxes once
+   lanes are height-synced across columns. Per-lane scrolling (when
+   maxVisibleCardsPerLane is active) is still handled separately, at
+   .ak-lane-cards. */
 .ak-card-list {
   display: flex;
   flex-direction: column;
@@ -603,16 +620,14 @@ body[style*="--ak-board-bg-image"] .ak-column {
                 than shrink-wrapping to its own cards */
   gap: 0;
   padding: 8px 8px 12px;
-  overflow-y: auto;
-  max-height: calc(100vh - 180px);
-  scrollbar-width: thin;
-  scrollbar-color: var(--background-modifier-border) transparent;
 }
 
-.ak-card-list::-webkit-scrollbar {
+/* Scrollbar styling for .ak-lane-cards (see below) — the only element
+   that actually scrolls now, when maxVisibleCardsPerLane is active. */
+.ak-lane-cards::-webkit-scrollbar {
   width: 4px;
 }
-.ak-card-list::-webkit-scrollbar-thumb {
+.ak-lane-cards::-webkit-scrollbar-thumb {
   background: var(--background-modifier-border);
   border-radius: 2px;
 }
@@ -626,14 +641,48 @@ body[style*="--ak-board-bg-image"] .ak-column {
 }
 
 /* ── Priority separator ──────────────────────────────────────────────── */
+/* Now clickable (12.11.0 lane collapse) — toggles collapsedPriorityLanes
+   for this priority tier, synced across every column. display:flex to
+   lay out the label and card-count badge on one row. */
 .ak-priority-sep {
-  font: 700 11px var(--ak-mono);
-  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Interface sans-serif, matching the "New Action" button — see
+     .ak-toolbar .ak-filter-btn for the full rationale (12.11.2). */
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
   color: var(--text-muted);
   padding: 8px 4px 4px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ak-priority-sep:hover,
+.ak-priority-sep:focus-visible {
+  color: var(--text-normal);
+}
+
+.ak-priority-sep-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  /* Interface sans-serif, matching .ak-column-badge — see that rule for
+     the rationale (denser/rounder digits than DM Mono at a glance). */
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 /* Extra legibility boost specifically while a background image is active
@@ -646,7 +695,55 @@ body[style*="--ak-board-bg-image"] .ak-priority-sep {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-.ak-priority-sep:first-child {
+/* One cell per priority tier within a column's card list (swim lanes).
+   Plain block flow — min-height is set inline by syncLaneHeights() after
+   all columns are rendered, to match this lane's tallest column
+   board-wide — see that method for the full explanation. The priority
+   separator is this element's direct child (never scrolls); the actual
+   cards live in a nested .ak-lane-cards child instead — see below. */
+.ak-lane-cell {
+  display: block;
+}
+
+/* Collapsed lane (12.11.0): removes the bottom border/margin under the
+   separator so a collapsed lane reads as just its header row, no
+   trailing whitespace, in every column — even ones where this lane
+   currently has 0 cards. */
+.ak-lane-cell--collapsed .ak-priority-sep {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+/* Holds a lane's cards only (not its separator). This is the sole
+   scrollable element for the maxVisibleCardsPerLane cap: max-height and
+   overflow-y are set inline from JS at creation time (see renderColumn)
+   only when the cap is active (priority grouping on AND a positive cap
+   value) — otherwise this is a plain block with no scroll of its own, so
+   the lane grows to full content height and the page/embed scrolls
+   instead. Splitting this out from .ak-lane-cell means the separator
+   stays visible/fixed above the scroll area rather than scrolling out of
+   view with the cards. */
+.ak-lane-cards {
+  display: block;
+}
+
+/* Collapsed lane: cardsWrap stays in the DOM (renderColumn skips
+   rendering into it, but still creates it for a consistent structure)
+   and is simply hidden — the count badge on the separator already shows
+   how many cards are inside. */
+.ak-lane-cards--hidden {
+  display: none;
+}
+
+/* Was ".ak-priority-sep:first-child" — correct before 12.10.0 when all
+   groups shared one flex .ak-card-list, so only the column's topmost
+   separator matched. Since each group's separator is now the first child
+   of its OWN .ak-lane-cell (see the swim-lane cell wrapping above), that
+   selector alone would match every lane's separator, not just the
+   column's overall first one. Scoped through :first-child on the lane
+   cell itself to restore the original intent: tighter top padding only
+   on the column's topmost lane. */
+.ak-lane-cell:first-child .ak-priority-sep:first-child {
   padding-top: 2px;
 }
 
@@ -924,9 +1021,12 @@ body[style*="--ak-board-bg-image"] .ak-priority-sep {
    Create) and its own per-modal option rows differ. */
 
 /* Outer dialog chrome (Obsidian's own .modal wrapper around contentEl) —
-   scoped to only fire when it actually contains an AK modal, so this
-   never affects Obsidian's own dialogs or another plugin's. */
-.modal:has(.ak-new-action-modal) {
+   scoped to only fire when it actually contains an AK modal. The wrapper
+   class is applied directly to modalEl in JS (all three modals' onOpen())
+   rather than inferred via a :has() relational selector, so this never
+   affects Obsidian's own dialogs or another plugin's, without the
+   DOM-invalidation cost :has() carries. */
+.modal.ak-new-action-modal-wrapper {
   border-radius: var(--ak-radius-lg);
   box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.65);
 }
@@ -1182,12 +1282,13 @@ button.ak-settings-status-pill:disabled {
 
 button.ak-settings-tab {
   position: relative;
+  flex: 1;
   background: transparent;
   border: none;
   border-radius: var(--ak-radius-sm) var(--ak-radius-sm) 0 0;
   padding: 11px 22px;
   margin-bottom: -1.5px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -1388,10 +1489,24 @@ button.ak-settings-add-btn:hover {
    its own rounded, subtly-backgrounded container rather than a dense
    grid line separated by a thin divider — matches the card/pill visual
    language used everywhere else in the plugin (Kanban cards, modals,
-   filter buttons) instead of a plain spreadsheet look. */
+   filter buttons) instead of a plain spreadsheet look.
+
+   Remove column narrowed to 44px in 12.9.2 (was 92px): Remove became an
+   icon-only button in 12.9.1, but its grid track was left at the old
+   text-button width, so the Color+Done+Remove tracks together still ate
+   over a third of the row even though Remove itself only needs room for
+   a ~29px icon button. 44px keeps a comfortable tap/click target while
+   giving the reclaimed space back to Label/ID.
+
+   Color/Done columns also narrowed to 44px (was 60px) in the same pass:
+   the color swatch itself is 28px and the toggle is 36px, so 60px had
+   slack beyond what either control needs — 44px still gives both a
+   comfortable click target without the excess. Combined with the
+   Remove-column narrowing, the fixed-width "controls zone" (Color+Done+
+   Remove) drops from 212px to 132px total. */
 .ak-settings-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 60px 60px 92px;
+  grid-template-columns: 1fr 1fr 44px 44px 44px;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
@@ -1406,11 +1521,10 @@ button.ak-settings-add-btn:hover {
 }
 
 /* Pill fields table has 3 cells (Label, Frontmatter key, Remove), not 5.
-   80px (not the old 44px) so the text-pill "Remove" button (padding
-   4px 12px around the word "Remove") fits inside its column instead of
-   overflowing past the row's rounded background on the right edge. */
+   44px (not the old 92px) since Remove is icon-only as of 12.9.1 — see
+   .ak-settings-row's comment above for the same reasoning. */
 .ak-settings-row--pill {
-  grid-template-columns: 1fr 1fr 92px;
+  grid-template-columns: 1fr 1fr 44px;
 }
 
 /* Columns table has 3 cells (Label, Statuses included, Remove); the
@@ -1418,10 +1532,10 @@ button.ak-settings-add-btn:hover {
    now holds a wrapped row of status pills. Uses an explicit class set in
    main.js (_renderColumnRows) rather than :has(.ak-settings-cell--multi)
    — :has() support in Obsidian's bundled Chromium build was unconfirmed,
-   so this is the guaranteed-safe alternative. Same 80px Remove column as
+   so this is the guaranteed-safe alternative. Same 44px Remove column as
    .ak-settings-row--pill above, for the same reason. */
 .ak-settings-row--columns {
-  grid-template-columns: 1fr 2.2fr 92px;
+  grid-template-columns: 1fr 2.2fr 44px;
 }
 
 /* Header row keeps the plain/flat look (it's a label row, not data) —
@@ -1537,6 +1651,31 @@ body.theme-dark .ak-settings-cell button:not(.ak-settings-status-pill) {
   background: color-mix(in srgb, var(--ak-accent-red, #e24b4a) 32%, transparent);
 }
 
+/* Remove is icon-only (trash-2 via Obsidian's setIcon) as of 12.9.1 — was
+   previously a text button reading "Remove", which took up more width
+   than a repeated per-row action needs, especially at narrow widths.
+   Tighter square-ish padding replaces the old text-sized 7px/16px.
+
+   Color: flat #dc2626 in every state (default and hover, both desktop
+   and stacked) — no color-mix/opacity variation and no hover-darken,
+   per explicit request for one consistent red everywhere. Overridden
+   from the shared --ak-accent-red token, which resolves to a rust/
+   terracotta tone (--ak-accent-red-light: #b8462f) elsewhere in the
+   plugin's palette and read as "brownish" for a destructive action
+   here specifically. --ak-accent-red itself is left untouched since
+   other UI may rely on its current rust tone intentionally — this
+   override is scoped to just the Remove button. */
+.ak-settings-cell button.ak-settings-remove-btn,
+.ak-settings-cell button.ak-settings-remove-btn:hover {
+  padding: 7px;
+  background: #dc2626;
+}
+
+.ak-settings-remove-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
 /* Shown by _validateSettings() in main.js when a status isn't assigned to
    any column — a warning, not a blocking error, since an unassigned
    status is still a valid frontmatter value, it just has nowhere to render. */
@@ -1554,4 +1693,138 @@ body.theme-dark .ak-settings-cell button:not(.ak-settings-status-pill) {
    when a warning appears/disappears as the user edits Statuses/Columns. */
 .ak-settings-validation {
   min-height: 4px;
+}
+
+/* =====================================================================
+   Responsive settings layout — narrow screens (phones, or a desktop
+   Settings window narrowed for testing; this is a plain viewport-width
+   media query, not an Obsidian mobile-platform check, so narrowing the
+   desktop window below this threshold exercises the same CSS path a
+   phone would hit).
+
+   Breakpoint raised to 700px in 12.9.1 (was 480px in 12.9.0): UAT at
+   480px left a dead zone between ~690px (tabs stop fitting) and 480px
+   where neither the desktop grid nor this stacked layout had taken
+   over yet — the Statuses table's fixed-track grid was still active
+   but too compressed, causing header/cell misalignment. Firing both
+   the tab-wrap and table-stack together at 700px removes that gap.
+
+   Below this width the fixed-track grids used by .ak-settings-row (and
+   its --pill/--columns variants) no longer have room for 3-5 columns
+   side by side — the Statuses table in particular was squeezing the ID
+   input (the field the user most needs to type into) down to a sliver.
+   Each row switches from a single-line grid to a single-column stack:
+   every cell (Label, ID, Color, Done, Remove) gets its own full-width
+   line. Color/Done/Remove are additionally given `justify-self: start`
+   so they sit compactly at natural size rather than stretching edge to
+   edge like the text inputs — but each is still its own line, since
+   laying sibling cells side-by-side within one shared grid cell isn't
+   possible without a wrapper element (none exists in the current DOM;
+   would need a small main.js change, out of scope here).
+
+   Field captions: the header row (Label/ID/Color/Done?) is hidden here
+   since there's no more horizontal alignment for it to caption — each
+   stacked cell instead gets its own small caption via ::before, reading
+   the data-field attribute main.js sets on the cell div at creation
+   time. Reuses the existing .ak-settings-hint type scale (11px, muted,
+   uppercase) rather than introducing a new visual style.
+   ===================================================================== */
+@media (max-width: 700px) {
+
+  /* Tab bar: base rule now gives each tab flex:1 (fills the row at any
+     width, closing the leftover-space gap reported in UAT). Below this
+     breakpoint 4 equal-width tabs no longer fit on one line, so they
+     wrap — flex-basis:100% stacks them one per line (not the previous
+     2x2) for clearer scanning when collapsed. Font size intentionally
+     NOT reduced here (was 13px through 12.9.2, a stale leftover from
+     when the base size was 14px) — each stacked tab has the full row
+     width now, so there's no space constraint forcing it smaller; it
+     inherits the same 16px as desktop for visual consistency. */
+  .ak-settings-tabbar {
+    flex-wrap: wrap;
+  }
+
+  button.ak-settings-tab {
+    flex-basis: 100%;
+    padding: 9px 14px;
+  }
+
+  /* Header rows become redundant once each stacked cell carries its own
+     data-field caption below — hiding avoids a dangling row of column
+     titles with nothing left to align under. */
+  .ak-settings-row--header {
+    display: none;
+  }
+
+  /* Base stacked layout, shared by all three row variants: single
+     column, each cell on its own line by default. */
+  .ak-settings-row,
+  .ak-settings-row--pill,
+  .ak-settings-row--columns {
+    display: grid;
+    grid-template-columns: 1fr;
+    row-gap: 8px;
+  }
+
+  /* Color swatch and Done toggle each keep their own row, sitting
+     compactly at natural size rather than stretching full-width like
+     the text inputs do — the DOM has no wrapper element around these
+     cells, and CSS Grid cannot lay multiple sibling items out
+     side-by-side within a single shared cell (they'd occupy the same
+     box and overlap, not sit adjacent), so each stays on its own line. */
+  .ak-settings-row [data-field="Color"] {
+    justify-self: start;
+  }
+
+  .ak-settings-row [data-field="Done?"] {
+    justify-self: start;
+  }
+
+  /* Remove: full-width at this breakpoint (was compact/left-aligned
+     through 12.9.2) — there's no longer 4 other cells competing for
+     row space once stacked, so a wide, clearly-labeled action reads
+     better here than a small icon hugging the left edge. Reuses the
+     solid-fill treatment from .ak-settings-add-btn ("Add status" etc.)
+     for visual consistency between the two per-table actions, rather
+     than the accent-red icon-button look used at desktop width. Same
+     flat #dc2626 in every state as the desktop rule above — no hover
+     darken, per explicit request for one consistent red everywhere.
+     Selector matches the desktop rule's specificity exactly
+     (.ak-settings-cell button.ak-settings-remove-btn, not just
+     .ak-settings-remove-btn alone) — a lower-specificity override here
+     would be silently shadowed by the desktop rule regardless of
+     media-query nesting or source order, since CSS specificity doesn't
+     account for either. */
+  .ak-settings-row > .ak-settings-cell:last-child {
+    width: 100%;
+  }
+
+  .ak-settings-cell button.ak-settings-remove-btn,
+  .ak-settings-cell button.ak-settings-remove-btn:hover {
+    width: 100%;
+    padding: 9px 16px;
+    background: #dc2626;
+  }
+
+  .ak-settings-remove-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Small muted uppercase caption above each stacked input, replacing
+     the now-hidden header row. Only rendered where main.js has set
+     data-field on the cell — the Remove-button cell intentionally has
+     no data-field (as of 12.9.1 it's an icon-only bin button; its
+     aria-label and hover title carry the label instead of visible
+     text, so a stacked caption here would be redundant). */
+  .ak-settings-cell[data-field]::before {
+    content: attr(data-field);
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
 }
